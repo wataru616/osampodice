@@ -146,6 +146,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
 .t-text { min-width: 0; }
 .t-text small { display: block; font-size: 11px; font-weight: 400; color: var(--ink-soft); line-height: 1.5; margin-top: 2px; }
 .toggle.off { opacity: .45; }
+.pref-note { margin: 8px 0 0; padding-top: 10px; border-top: 2px dashed var(--grid); font-size: 11px; color: var(--ink-soft); line-height: 1.5; }
 .toggle input {
   appearance: none; -webkit-appearance: none; flex: none; margin: 0; cursor: pointer;
   width: 52px; height: 30px; border-radius: 8px; border: 2.5px solid var(--edge); background: var(--board); position: relative;
@@ -278,11 +279,11 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
 
     <div class="panel piece">
       <div class="panel-head"><h2 class="panel-title"><span class="space yellow"></span>ルートの好み</h2></div>
-      <label class="toggle"><span class="t-text">行きと帰りで同じ道をなるべく通らない<small>来た道を引き返すような区間が少ないルートを選びます</small></span><input type="checkbox" id="avoidBack"></label>
-      <label class="toggle" id="crowdRow"><span class="t-text">人通りの多い場所をなるべく避ける<small id="crowdNote">駅のまわりや駅の通り抜け、商店街・歩行者天国を通らないルートを選びます</small></span><input type="checkbox" id="avoidCrowd"></label>
-      <label class="toggle"><span class="t-text">坂道をなるべく避ける<small>坂に加えて、階段・歩道橋・地下道・跨線橋をできるだけ通らないルートを選びます</small></span><input type="checkbox" id="avoidHills"></label>
-      <label class="toggle" id="busyRow"><span class="t-text">車通りの多い大通りをなるべく避ける<small id="busyNote">国道・県道クラスの道が少ないルートを選びます</small></span><input type="checkbox" id="avoidBusy"></label>
-      <label class="toggle"><span class="t-text">夜道モード<small>路地・公園の小道・人家の少ない道を避け、街灯や人通りのありそうな通りを優先します</small></span><input type="checkbox" id="night"></label>
+      <label class="toggle"><span class="t-text">行きと帰りで同じ道をなるべく通らない<small>散歩に飽きないように、来た道を引き返す区間が少ないルートを選びます</small></span><input type="checkbox" id="avoidBack"></label>
+      <label class="toggle"><span class="t-text">坂道をなるべく避ける<small>気軽に歩けるように、坂や階段・歩道橋・地下道・跨線橋が少ないルートを選びます</small></span><input type="checkbox" id="avoidHills"></label>
+      <label class="toggle" id="busyRow"><span class="t-text">車通りの多い大通りをなるべく避ける<small id="busyNote">排気ガスや騒音が気にならないように、国道・県道クラスの道が少ないルートを選びます</small></span><input type="checkbox" id="avoidBusy"></label>
+      <label class="toggle"><span class="t-text">夜道モード<small>夜道を一人で歩くのが不安なときに。路地・公園の小道・人家の少ない道を避け、街灯や人通りのありそうな通りを優先します</small></span><input type="checkbox" id="night"></label>
+      <p class="pref-note" id="crowdNote">ふだんは、駅のまわり・駅の通り抜け・商店街など人通りの多い場所を自動で避けます。</p>
     </div>
 
     <div class="panel piece" id="result" hidden>
@@ -763,7 +764,8 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
     return p;
   }
   const avoidBack = () => $("avoidBack").checked;
-  const avoidCrowd = () => $("avoidCrowd").checked && !nightMode();  // 夜道モード中は人通りを避けない
+  // 人通りの多い場所（駅前・商店街）は、夜道モードでない限りいつも避ける
+  const avoidCrowd = () => !nightMode();
   const avoidHills = () => $("avoidHills").checked;
   const nightMode = () => $("night").checked;
   const avoidBusy = () => $("avoidBusy").checked && !nightMode();  // 夜道モード中は大通りを避けない
@@ -943,22 +945,22 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
     speed = +b.dataset.speed; save("speed", speed); renderTime();
     if (route) { if (mode === "time") clearRoute(); else renderStats(); }  // 距離指定ならルートはそのまま
   });
-  // 「同じ道を通らない」「人通りを避ける」は最初からオン、他は最初はオフ
-  const DEFAULT_ON = new Set(["avoidBack", "avoidCrowd"]);
-  ["avoidBack", "avoidCrowd", "avoidHills", "avoidBusy", "night"].forEach((id) => {
-    $(id).checked = settings[id] == null ? DEFAULT_ON.has(id) : !!settings[id];
+  // 「同じ道を通らない」は最初からオン、他は最初はオフ
+  ["avoidBack", "avoidHills", "avoidBusy", "night"].forEach((id) => {
+    $(id).checked = settings[id] == null ? id === "avoidBack" : !!settings[id];
     $(id).addEventListener("change", (e) => { save(id, e.target.checked); renderPrefs(); });
   });
-  // 夜道モード中は、人通りのある表通りを優先するため「大通りを避ける」「人通りを避ける」を止める
+  // 夜道モード中は、人通りのある表通りを優先するため「大通りを避ける」と自動の人通り回避を止める
   function renderPrefs() {
     const n = nightMode();
-    [["busyRow", "avoidBusy", "busyNote", "国道・県道クラスの道が少ないルートを選びます"],
-     ["crowdRow", "avoidCrowd", "crowdNote", "駅のまわりや駅の通り抜け、商店街・歩行者天国を通らないルートを選びます"]]
-      .forEach(([row, input, note, text]) => {
-        $(row).classList.toggle("off", n);
-        $(input).disabled = n;
-        $(note).textContent = n ? "夜道モード中は、人通りのある道を優先するため使いません" : text;
-      });
+    $("busyRow").classList.toggle("off", n);
+    $("avoidBusy").disabled = n;
+    $("busyNote").textContent = n
+      ? "夜道モード中は、人通りのある表通りを優先するため使いません"
+      : "排気ガスや騒音が気にならないように、国道・県道クラスの道が少ないルートを選びます";
+    $("crowdNote").textContent = n
+      ? "夜道モード中は、駅前や商店街を避けず、人通りのありそうな表通りを優先します。"
+      : "ふだんは、駅のまわり・駅の通り抜け・商店街など人通りの多い場所を自動で避けます。";
   }
   renderPrefs();
   $("roll").addEventListener("click", generate);
