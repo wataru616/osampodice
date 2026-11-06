@@ -153,16 +153,19 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
 .seg small { display: block; font-size: 10px; color: var(--ink-soft); font-weight: 400; }
 
 .result {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 8px;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 6px;
   background: var(--forest-soft); border-radius: 14px; padding: 12px 14px;
 }
 .stat { min-width: 0; }
-.stat b { display: block; font-family: var(--font-display); font-size: 20px; font-variant-numeric: tabular-nums; color: var(--forest); }
+.stat b { display: block; font-family: var(--font-display); font-size: 17px; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--forest); }
 .stat span { font-size: 11px; color: var(--ink-soft); letter-spacing: .06em; }
 .note { font-size: 12px; color: var(--ink-soft); grid-column: 1 / -1; line-height: 1.5; }
 .note.bad { color: var(--warn); }
 
-.toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; min-height: 44px; }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; min-height: 44px; padding-block: 6px; }
+.t-text { min-width: 0; }
+.t-text small { display: block; font-size: 11px; color: var(--ink-soft); line-height: 1.5; margin-top: 2px; }
+.toggle.off { opacity: .5; }
 .toggle input { appearance: none; -webkit-appearance: none; width: 50px; height: 30px; border-radius: 15px; background: var(--line); position: relative; cursor: pointer; flex: none; margin: 0; }
 .toggle input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 .toggle input:checked { background: var(--forest); }
@@ -273,21 +276,25 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
 
     <div>
       <div class="label">ルートの好み</div>
-      <label class="toggle">坂道をなるべく避ける<input type="checkbox" id="avoidHills"></label>
-      <label class="toggle">車通りの多い大通りをなるべく避ける<input type="checkbox" id="avoidBusy"></label>
+      <label class="toggle"><span class="t-text">行きと帰りで同じ道をなるべく通らない<small>来た道を引き返すような区間が少ないルートを選びます</small></span><input type="checkbox" id="avoidBack"></label>
+      <label class="toggle"><span class="t-text">坂道をなるべく避ける<small>上り下りが少ないルートを選びます</small></span><input type="checkbox" id="avoidHills"></label>
+      <label class="toggle" id="busyRow"><span class="t-text">車通りの多い大通りをなるべく避ける<small id="busyNote">国道・県道クラスの道が少ないルートを選びます</small></span><input type="checkbox" id="avoidBusy"></label>
+      <label class="toggle"><span class="t-text">夜道モード<small>路地・公園の小道・人家の少ない道を避け、街灯や人通りのありそうな通りを優先します</small></span><input type="checkbox" id="night"></label>
     </div>
 
     <div class="result" id="result" hidden>
       <div class="stat"><b id="rDist">–</b><span>距離</span></div>
       <div class="stat"><b id="rTime">–</b><span>予想時間</span></div>
-      <div class="stat"><b id="rSteps">–</b><span>歩数の目安</span></div>
+      <div class="stat"><b id="rSteps">–</b><span>歩数</span></div>
+      <div class="stat"><b id="rBack">–</b><span>同じ道</span></div>
       <div class="stat"><b id="rClimb">–</b><span>上りの合計</span></div>
-      <div class="stat"><b id="rBusy">–</b><span>大通りの割合</span></div>
       <div class="stat"><b id="rSteep">–</b><span>一番急な坂</span></div>
+      <div class="stat"><b id="rBusy">–</b><span>大通り</span></div>
+      <div class="stat"><b id="rDark">–</b><span>暗くなりやすい道</span></div>
       <div class="note" id="rNote"></div>
     </div>
 
-    <label class="toggle">開いたらすぐナビを開始する<input type="checkbox" id="navNow"></label>
+    <label class="toggle"><span class="t-text">Googleマップですぐに道案内を始める<small>オン：Googleマップが開くと同時に、音声つきのナビが始まります。<br>オフ：まずルート全体が表示されます。確認してから、自分で「開始」を押してナビを始めます。</small></span><input type="checkbox" id="navNow"></label>
   </div>
 </section>
 
@@ -534,22 +541,31 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     const step = Math.max(1, Math.floor(res.line.length / 400));
     const pts = res.line.filter((_, i) => i % step === 0 || i === res.line.length - 1);
     const poly = encode6(pts);
-    const [ta, h] = await Promise.all([
-      getJson(VALHALLA + "trace_attributes", {
-        encoded_polyline: poly, shape_match: "map_snap", costing: "pedestrian",
-        filters: { attributes: ["edge.road_class", "edge.length"], action: "include" }
-      }).catch(() => null),
-      getJson(VALHALLA + "height", { encoded_polyline: poly, range: true, resample_distance: 30 }).catch(() => null)
-    ]);
-    const out = { busy: null, climb: null, steep: null };
+    // 混雑で断られたときに備えて、失敗したら少し待って1回だけ取り直す
+    const retry = async (fn) => { try { return await fn(); } catch { await new Promise((r) => setTimeout(r, 1200)); return fn().catch(() => null); } };
+    const ta = await retry(() => getJson(VALHALLA + "trace_attributes", {
+      encoded_polyline: poly, shape_match: "map_snap", costing: "pedestrian",
+      filters: { attributes: ["edge.road_class", "edge.length", "edge.use", "edge.density"], action: "include" }
+    }));
+    const h = await retry(() => getJson(VALHALLA + "height", { encoded_polyline: poly, range: true, resample_distance: 30 }));
+    const out = { busy: null, climb: null, steep: null, dark: null, lively: null };
     if (ta && ta.edges) {
-      let all = 0, busyLen = 0;
-      ta.edges.forEach((e) => { all += e.length || 0; if (BUSY_CLASSES.has(e.road_class)) busyLen += e.length || 0; });
-      if (all > 0) out.busy = busyLen / all;
+      let all = 0, busyLen = 0, darkLen = 0, livelyLen = 0;
+      ta.edges.forEach((e) => {
+        const len = e.length || 0; all += len;
+        if (BUSY_CLASSES.has(e.road_class)) busyLen += len;
+        darkLen += len * darkWeight(e);
+        if (LIVELY_CLASSES.has(e.road_class) || e.use === "pedestrian") livelyLen += len;
+      });
+      if (all > 0) { out.busy = busyLen / all; out.dark = darkLen / all; out.lively = livelyLen / all; }
     }
     if (h && h.range_height && h.range_height.length > 2) {
-      const rh = h.range_height.filter((x) => x[1] != null && x[1] > -1000);
-      // 標高データは誤差があるので 3m 以上の変化だけ上りとして数える
+      const raw = h.range_height.filter((x) => x[1] != null && x[1] > -1000);
+      // 標高データは建物や木の影響で数m揺れるので、前後5点（約150m）でならしてから数える
+      const rh = raw.map(([d], i) => {
+        const win = raw.slice(Math.max(0, i - 2), i + 3);
+        return [d, win.reduce((s, x) => s + x[1], 0) / win.length];
+      });
       let climb = 0, base = rh[0][1], steep = 0;
       rh.forEach(([, z]) => {
         if (z - base >= 3) { climb += z - base; base = z; }
@@ -566,16 +582,60 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     return out;
   }
 
+  // 夜に暗くなりやすい道：路地・公園や緑地の小道・階段・駐車場の通路・人家の少ない地域の道
+  const DARK_USES = new Set(["alley", "path", "track", "steps", "driveway", "parking_aisle", "cycleway", "mountain_bike", "bridleway"]);
+  // 街灯や人通りが期待できる道：商店や交通のある通り
+  const LIVELY_CLASSES = new Set(["trunk", "primary", "secondary", "tertiary"]);
+  // 暗くなりやすさ（0〜1）。日本の地図データでは駅前や大通り沿いの歩道も footway なので半分だけ数える
+  function darkWeight(e) {
+    if (e.density != null && e.density <= 5) return 1;  // 建物の少ない地域
+    if (DARK_USES.has(e.use)) return 1;
+    if (e.use === "footway") return e.density != null && e.density < 10 ? 1 : 0.5;
+    return 0;                                             // 車道・歩道（sidewalk）・横断歩道・歩行者天国
+  }
+
+  // 同じ道を2回通る割合（ルートの線を 10m ごとに区切り、離れた場面で同じ場所を通る点を数える）
+  function backtrackRatio(line) {
+    if (!line || line.length < 2) return null;
+    const lat0 = line[0][0] * Math.PI / 180, kx = Math.cos(lat0) * 111320, ky = 110540;
+    const xy = line.map(([la, lo]) => [lo * kx, la * ky]);
+    const pts = []; let s = 0, carry = 0;
+    for (let i = 1; i < xy.length; i++) {
+      const [x1, y1] = xy[i - 1], [x2, y2] = xy[i];
+      const seg = Math.hypot(x2 - x1, y2 - y1);
+      let t = carry;
+      while (t <= seg) { pts.push({ x: x1 + (x2 - x1) * t / (seg || 1), y: y1 + (y2 - y1) * t / (seg || 1), s: s + t }); t += 10; }
+      carry = t - seg; s += seg;
+    }
+    const CELL = 15, grid = new Map(), key = (cx, cy) => cx + "," + cy;
+    pts.forEach((p, i) => { const k = key(Math.floor(p.x / CELL), Math.floor(p.y / CELL)); (grid.get(k) || grid.set(k, []).get(k)).push(i); });
+    let dup = 0;
+    pts.forEach((p) => {
+      const cx = Math.floor(p.x / CELL), cy = Math.floor(p.y / CELL);
+      outer: for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        for (const j of grid.get(key(cx + dx, cy + dy)) || []) {
+          const q = pts[j];
+          if (Math.abs(q.s - p.s) > 150 && Math.hypot(q.x - p.x, q.y - p.y) < 12) { dup++; break outer; }
+        }
+      }
+    });
+    return pts.length ? dup / pts.length : 0;
+  }
+
   // 好みに合わないほど大きくなる点数
   function penalty(c) {
     let p = 0;
+    if (avoidBack() && c.back != null) p += c.back * 120;                        // 同じ道 10% → 12点
     if (avoidBusy() && c.busy != null) p += c.busy * 100;                        // 大通り 10% → 10点
     if (avoidHills() && c.climb != null) p += c.climb / (c.distance / 1000) * 1.5   // 1kmあたり 10m 上る → 15点
                                           + Math.max(0, c.steep - 5) * 3;          // 5% を超える急坂
+    if (nightMode() && c.dark != null) p += c.dark * 150 - (c.lively || 0) * 30;  // 暗い道 10% → 15点、表通りは少し加点
     return p;
   }
+  const avoidBack = () => $("avoidBack").checked;
   const avoidHills = () => $("avoidHills").checked;
-  const avoidBusy = () => $("avoidBusy").checked;
+  const nightMode = () => $("night").checked;
+  const avoidBusy = () => $("avoidBusy").checked && !nightMode();  // 夜道モード中は大通りを避けない
   const targetMeters = () => mode === "dist" ? km * 1000 : minutes * speed;
 
   // ---------- generate ----------
@@ -586,7 +646,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     }
     const target = targetMeters();
     const r0 = target / (5.66 * ROAD_FACTOR);
-    const want = (avoidHills() || avoidBusy()) ? 3 : 1;   // 好みがあるときは3候補から選ぶ
+    const want = (avoidBack() || avoidHills() || avoidBusy() || nightMode()) ? 3 : 1;   // 好みがあるときは3候補から選ぶ
     const cands = [];
     let fallback = null, budget = ROUTE_BUDGET, routed = true, lastErr = null;
 
@@ -613,9 +673,9 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
       if (!cands.length && fallback) cands.push(fallback);
       if (!cands.length) throw new Error("no candidate");
 
-      busyMsg("坂と大通りを調べています…");
-      const info = await Promise.all(cands.map(inspect));
-      cands.forEach((c, i) => Object.assign(c, info[i]));
+      busyMsg("道の様子を調べています…");
+      // 無料サーバーに負担をかけないよう、候補は1つずつ順番に調べる
+      for (const c of cands) Object.assign(c, await inspect(c), { back: backtrackRatio(c.line) });
       cands.sort((a, b) => (penalty(a) + a.err * 50) - (penalty(b) + b.err * 50));
       route = { ...cands[0], routed, target, compared: cands.length };
     } catch (e) {
@@ -623,7 +683,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
       const shape = randomShape();
       const wps = waypointsFor(shape, r0);
       const wps2 = waypointsFor(shape, r0 * target / (straightLength(wps) * ROAD_FACTOR));
-      route = { snapped: wps2, distance: straightLength(wps2) * ROAD_FACTOR, line: null, routed, target, busy: null, climb: null, steep: null };
+      route = { snapped: wps2, distance: straightLength(wps2) * ROAD_FACTOR, line: null, routed, target, busy: null, climb: null, steep: null, dark: null, back: null };
     } finally { busy(false); }
     draw();
   }
@@ -659,13 +719,17 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     $("rSteps").textContent = Math.round(route.distance / 0.7).toLocaleString() + "歩";
     $("rClimb").textContent = route.climb == null ? "–" : Math.round(route.climb) + "m";
     $("rBusy").textContent = route.busy == null ? "–" : Math.round(route.busy * 100) + "%";
-    $("rSteep").textContent = route.steep == null ? "–" : (route.steep < 2 ? "ほぼ平ら" : Math.round(route.steep) + "%");
+    $("rSteep").textContent = route.steep == null ? "–" : (route.steep < 2 ? "平ら" : Math.round(route.steep) + "%");
+    const pct = (v) => v == null ? "–" : Math.round(v * 100) + "%";
+    $("rBack").textContent = pct(route.back);
+    $("rDark").textContent = pct(route.dark);
     const note = $("rNote");
     if (!route.routed) {
       note.textContent = "経路サーバーに接続できなかったため、直線距離からの概算です。";
     } else {
       const picked = route.compared > 1 ? `${route.compared}つの候補から、好みに一番合うルートを選びました。` : "";
-      note.textContent = picked + "Googleマップは道の選び方が少し違うため、時間は数分前後することがあります。";
+      const night = nightMode() ? "夜道モードは地図のデータから道の様子を推定したもので、安全を保証するものではありません。" : "";
+      note.textContent = picked + "Googleマップは道の選び方が少し違うため、時間は数分前後することがあります。" + night;
     }
     note.classList.toggle("bad", !route.routed);
   }
@@ -724,10 +788,21 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     speed = +b.dataset.speed; save("speed", speed); renderTime();
     if (route) { if (mode === "time") clearRoute(); else renderStats(); }  // 距離指定ならルートはそのまま
   });
-  ["avoidHills", "avoidBusy"].forEach((id) => {
-    $(id).checked = !!settings[id];
-    $(id).addEventListener("change", (e) => save(id, e.target.checked));
+  // 「同じ道を通らない」は最初からオン、他は最初はオフ
+  ["avoidBack", "avoidHills", "avoidBusy", "night"].forEach((id) => {
+    $(id).checked = settings[id] == null ? id === "avoidBack" : !!settings[id];
+    $(id).addEventListener("change", (e) => { save(id, e.target.checked); renderPrefs(); });
   });
+  // 夜道モード中は、人通りのある表通りを優先するため「大通りを避ける」を止める
+  function renderPrefs() {
+    const n = nightMode();
+    $("busyRow").classList.toggle("off", n);
+    $("avoidBusy").disabled = n;
+    $("busyNote").textContent = n
+      ? "夜道モード中は、人通りのある表通りを優先するため使いません"
+      : "国道・県道クラスの道が少ないルートを選びます";
+  }
+  renderPrefs();
   $("roll").addEventListener("click", generate);
   $("reroll").addEventListener("click", generate);
   $("fitBtn").addEventListener("click", fitRoute);
