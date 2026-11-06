@@ -101,7 +101,7 @@ button { touch-action: manipulation; }
 }
 .grip { width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto; }
 .label { font-size: 12px; color: var(--ink-soft); letter-spacing: .08em; margin-bottom: 8px; font-weight: 700; }
-.loc { font-size: 12px; color: var(--ink-soft); margin-top: 6px; line-height: 1.5; }
+.loc { font-size: 12px; color: var(--ink-soft); margin-top: 6px; line-height: 1.5; white-space: pre-line; }
 .loc.bad { color: var(--warn); }
 
 .addr { display: flex; gap: 8px; margin: 0; }
@@ -352,21 +352,39 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
   // ---------- 現在地 ----------
   function locate() {
     $("loc").textContent = "現在地を取得中…"; $("loc").classList.remove("bad");
-    if (!navigator.geolocation) { gpsFail(); return; }
-    navigator.geolocation.getCurrentPosition(
-      (p) => gpsOk(p.coords.latitude, p.coords.longitude, p.coords.accuracy),
-      gpsFail, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
-    );
+    if (!navigator.geolocation || !window.isSecureContext) { gpsFail({ code: 0 }); return; }
+    const ok = (p) => gpsOk(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
+    // まず GPS で高精度に。取れなければ（屋内・電波が弱いなど）精度を落として取り直す
+    navigator.geolocation.getCurrentPosition(ok, (err) => {
+      if (err.code === 1) { gpsFail(err); return; }   // 許可されていない → 取り直しても無駄
+      $("loc").textContent = "現在地を取得中…（もう少しお待ちください）";
+      navigator.geolocation.getCurrentPosition(ok, gpsFail, { enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 });
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
   }
   function gpsOk(lat, lng, acc) {
     clearRoute();
     setOrigin(lat, lng, `現在地から出発（誤差 約${Math.round(acc || 0)}m）`);
     map.setView([lat, lng], 15);
   }
-  function gpsFail() {
+  function gpsFail(err) {
+    const ua = navigator.userAgent;
+    const ios = /iPhone|iPad|iPod/.test(ua);
+    const reasons = {
+      0: "このページでは位置情報が使えません（https:// で始まるURLで開いてください）。",
+      1: ios
+        ? "位置情報が許可されていません。iPhoneの「設定」→「Chrome」→「位置情報」を「このAppの使用中」にし、「正確な位置情報」をオンにしてください。その後このページを開き直し、右の現在地ボタンを押してください。"
+        : "位置情報が許可されていません。Chromeのアドレスバー左のアイコン →「権限」→「位置情報」を許可にしてください。スマホ本体の位置情報（設定 → 位置情報）がオンかも確認してください。",
+      2: "現在地を特定できませんでした。スマホの位置情報がオンか確認するか、屋外で右の現在地ボタンをもう一度押してください。",
+      3: "現在地の取得に時間がかかりすぎました。屋外で右の現在地ボタンをもう一度押してください。"
+    };
+    const msg = reasons[err && err.code] || reasons[2];
     const last = settings.lastPlace;
-    if (last && !origin) { setOrigin(last.lat, last.lng, last.name + " から出発（前回の住所）"); return; }
-    $("loc").textContent = "現在地を取れませんでした。住所で検索するか、地図をタップしてください";
+    if (last && !origin) {
+      setOrigin(last.lat, last.lng, last.name + " から出発（前回の住所）");
+      $("loc").textContent += "\n" + msg;
+    } else {
+      $("loc").textContent = msg + " 住所で検索するか、地図をタップしても出発地を決められます。";
+    }
     $("loc").classList.add("bad");
   }
 
