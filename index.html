@@ -554,8 +554,53 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
       distance: j.trip.summary.length * 1000,
       line,
       // 道に吸着した後の経由地 = 2〜4本目の区間の始点
-      snapped: legs.slice(1, 4).map((l) => ({ lat: l[0][0], lng: l[0][1] }))
+      snapped: legs.slice(1, 4).map((l) => ({ lat: l[0][0], lng: l[0][1] })),
+      legs
     };
+  }
+
+  // 線の始まりから step(m) ごとの点を、maxLen(m) まで取り出す
+  function samplePath(pts, step, maxLen) {
+    const out = [{ lat: pts[0][0], lng: pts[0][1] }];
+    let want = step;
+    for (let i = 1, s = 0; i < pts.length && want <= maxLen; i++) {
+      const a = { lat: pts[i - 1][0], lng: pts[i - 1][1] }, b = { lat: pts[i][0], lng: pts[i][1] };
+      const seg = haversine(a, b);
+      while (want <= s + seg && want <= maxLen) {
+        const t = seg ? (want - s) / seg : 0;
+        out.push({ lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t });
+        want += step;
+      }
+      s += seg;
+    }
+    return out;
+  }
+  // 経由地で「行って戻る」寄り道になっていないか調べる。
+  // 経由地から来た道と次の道を同時にたどり、重なっている間は寄り道。重なりが終わる点（交差点）を返す
+  function findSpurs(res) {
+    const spurs = [];
+    for (let k = 0; k < 3; k++) {
+      const inLeg = res.legs[k], outLeg = res.legs[k + 1];
+      if (!inLeg || !outLeg || inLeg.length < 2 || outLeg.length < 2) continue;
+      const A = samplePath(inLeg.slice().reverse(), 5, 400), B = samplePath(outLeg, 5, 400);
+      let j = 0;
+      while (j < A.length && j < B.length && haversine(A[j], B[j]) < 12) j++;
+      const spurLen = (j - 1) * 5;
+      if (spurLen >= 15) spurs.push({ k, junction: A[Math.max(0, j - 1)], len: spurLen });
+    }
+    return spurs;
+  }
+  // 寄り道があれば経由地を交差点へ移してルートを取り直す（最大2回）
+  async function fetchRouteNoSpur(wps, spend) {
+    let res = await fetchRoute(wps);
+    for (let n = 0; n < 2; n++) {
+      const spurs = findSpurs(res);
+      if (!spurs.length || !spend()) break;
+      wps = wps.slice();
+      spurs.forEach((s) => { wps[s.k] = s.junction; });
+      res = await fetchRoute(wps);
+    }
+    return { res, wps };
   }
 
   // ---------- 国土地理院の標高タイル ----------
@@ -714,7 +759,8 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
       outer: for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
         for (const j of grid.get(key(cx + dx, cy + dy)) || []) {
           const q = pts[j];
-          if (Math.abs(q.s - p.s) > 150 && Math.hypot(q.x - p.x, q.y - p.y) < 12) { dup++; break outer; }
+          // 道のりで 30m 以上離れた場面なのに、同じ場所（12m 以内）を通る → 同じ道（短い往復も含む）
+          if (Math.abs(q.s - p.s) > 30 && Math.hypot(q.x - p.x, q.y - p.y) < 12) { dup++; break outer; }
         }
       }
     });
@@ -795,7 +841,11 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
           budget--;
           const wps = waypointsFor(shape, r);
           let res;
-          try { res = await fetchRoute(wps); } catch (e) { lastErr = e; break; }  // 海や山奥など → 別の形で
+          try {
+            // 経由地での「行って戻る」寄り道は、経由地を交差点へ移して取り除く
+            const got = await fetchRouteNoSpur(wps, () => budget-- > 0);
+            res = got.res; wps.splice(0, wps.length, ...got.wps);
+          } catch (e) { lastErr = e; break; }  // 海や山奥など → 別の形で
           // 道のない場所から遠くへ吸い寄せられた・極端に遠回り → この形はやめる
           const drift = Math.max(...res.snapped.map((p, i) => haversine(p, wps[i])));
           const detour = res.distance / Math.max(1, straightLength(res.snapped));
