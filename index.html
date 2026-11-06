@@ -277,7 +277,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
 
     <div class="panel piece">
       <div class="panel-head"><h2 class="panel-title"><span class="space yellow"></span>ルートの好み</h2></div>
-      <label class="toggle"><span class="t-text">行きと帰りで同じ道をなるべく通らない<small>散歩に飽きないように、来た道を引き返す区間が少ないルートを選びます</small></span><input type="checkbox" id="avoidBack"></label>
+      <label class="toggle"><span class="t-text">行きと帰りで同じ道を通らない<small>散歩に飽きないように、来た道を引き返さないルートだけを選びます（出発地のすぐそばは除きます）</small></span><input type="checkbox" id="avoidBack"></label>
       <label class="toggle"><span class="t-text">坂道をなるべく避ける<small>気軽に歩けるように、坂や階段・歩道橋・地下道・跨線橋が少ないルートを選びます</small></span><input type="checkbox" id="avoidHills"></label>
       <label class="toggle" id="busyRow"><span class="t-text">車通りの多い大通りをなるべく避ける<small id="busyNote">排気ガスや騒音が気にならないように、国道・県道クラスの道が少ないルートを選びます</small></span><input type="checkbox" id="avoidBusy"></label>
       <label class="toggle"><span class="t-text">夜道モード<small>夜道を一人で歩くのが不安なときに。路地・公園の小道・人家の少ない道を避け、街灯や人通りのありそうな通りを優先します</small></span><input type="checkbox" id="night"></label>    </div>
@@ -328,6 +328,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
   const ROAD_FACTOR = 1.3;     // 直線距離→道のりのざっくり係数（初期値用）
   const TOLERANCE = 0.06;      // 目標距離から ±6% 以内なら採用
   const ROUTE_BUDGET = 18;     // 1回の生成で経路を問い合わせる上限
+  const BACK_LIMIT = 0.01;     // 「同じ道」とみなす区間がこれ（1%）を超えたら不合格（計測の誤差ぶんだけ許す）
   const BUSY_CLASSES = new Set(["motorway", "trunk", "primary", "secondary"]); // 大通りとみなす道
 
   // ---------- 設定の保存（この端末のブラウザ内だけ） ----------
@@ -705,7 +706,10 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
     const CELL = 15, grid = new Map(), key = (cx, cy) => cx + "," + cy;
     pts.forEach((p, i) => { const k = key(Math.floor(p.x / CELL), Math.floor(p.y / CELL)); (grid.get(k) || grid.set(k, []).get(k)).push(i); });
     let dup = 0;
+    const start = pts[0];
     pts.forEach((p) => {
+      // 出発地のすぐそば（100m 以内）は、家の前の道などで避けようがないので数えない
+      if (Math.hypot(p.x - start.x, p.y - start.y) < 100) return;
       const cx = Math.floor(p.x / CELL), cy = Math.floor(p.y / CELL);
       outer: for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
         for (const j of grid.get(key(cx + dx, cy + dy)) || []) {
@@ -778,7 +782,8 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
     const any = avoidBack() || avoidCrowd() || avoidHills() || avoidBusy() || nightMode();
     const want = any ? 4 : 1;   // 好みがあるときは4候補から選ぶ
     const cands = [];
-    let fallback = null, budget = ROUTE_BUDGET, routed = true, lastErr = null;
+    let fallback = null, backFallback = null, routed = true, lastErr = null;
+    let budget = avoidBack() ? ROUTE_BUDGET + 8 : ROUTE_BUDGET;  // 同じ道を通らない条件は厳しいので多めに探す
 
     busy(true, "サイコロをふっています…");
     // 人通りを避けるときは、周りの駅の位置を先に調べておく
@@ -797,11 +802,21 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
           if (drift > r * 0.35 || detour > 2.2) break;
           const err = Math.abs(res.distance - target) / target;
           if (!fallback || err < fallback.err) fallback = { ...res, err };
-          if (err <= TOLERANCE) { cands.push({ ...res, err }); break; }
+          if (err <= TOLERANCE) {
+            // 「同じ道を通らない」がオンなら、引き返す区間のあるルートは候補にしない（別の形で作り直す）
+            const back = backtrackRatio(res.line);
+            if (avoidBack() && back > BACK_LIMIT) {
+              if (!backFallback || back < backFallback.back) backFallback = { ...res, err, back };
+              break;
+            }
+            cands.push({ ...res, err }); break;
+          }
           r *= Math.pow(target / res.distance, 0.9);
         }
         if (want > 1) busyMsg(`コースの候補を探しています（${cands.length}/${want}）`);
       }
+      // 条件を満たすルートが1つもなければ、一番ましなものを使う（画面で知らせる）
+      if (!cands.length && backFallback) cands.push(backFallback);
       if (!cands.length && fallback) cands.push(fallback);
       if (!cands.length) throw new Error("no candidate");
 
@@ -869,11 +884,13 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
       const stepsTxt = `歩数の目安は約${Math.round(route.distance / 0.7).toLocaleString()}歩です。`;
       const stairWarn = avoidHills() && route.steps > 0
         ? `候補の中に階段・歩道橋のないルートが見つかりませんでした（${route.steps}か所あります）。「ふりなおす」で別のルートも試せます。` : "";
-      const picked = stepsTxt + stairWarn + (route.compared > 1 ? `${route.compared}つの候補から、好みに一番合うルートを選びました。` : "");
+      const backWarn = avoidBack() && route.back > BACK_LIMIT
+        ? `同じ道を通らないルートが見つかりませんでした（同じ道が${Math.round(route.back * 100)}%あります）。「ふりなおす」で別のルートを試すか、出発地を少し変えてみてください。` : "";
+      const picked = stepsTxt + backWarn + stairWarn + (route.compared > 1 ? `${route.compared}つの候補から、好みに一番合うルートを選びました。` : "");
       const night = nightMode() ? "夜道モードは地図のデータから道の様子を推定したもので、安全を保証するものではありません。" : "";
       note.textContent = picked + "Googleマップは道の選び方が少し違うため、時間は数分前後することがあります。" + night;
     }
-    note.classList.toggle("bad", !route.routed);
+    note.classList.toggle("bad", !route.routed || (avoidBack() && route.back > BACK_LIMIT));
   }
 
   function gmapsUrl() {
