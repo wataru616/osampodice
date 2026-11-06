@@ -3,30 +3,31 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<title>さんぽダイス</title>
-<meta name="theme-color" content="#1f4d3a">
+<title>おさんぽダイス</title>
+<meta name="theme-color" content="#1c2230">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="さんぽダイス">
+<meta name="apple-mobile-web-app-title" content="おさんぽダイス">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700&family=Zen+Maru+Gothic:wght@700;900&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
-/* Layout (phone first): map on top / scrollable settings sheet / action bar pinned to the bottom, thumb-reachable */
+/* Layout (phone first): map on top / sugoroku-board sheet of game cards / dice action bar pinned to the bottom.
+   Look: tabletop board game — graph-paper board, thick ink outlines, hard offset shadows, colour-coded spaces. */
 :root {
-  --ink: #1d2a24;
-  --ink-soft: #5b6b63;
-  --paper: #f3f5f1;
-  --sheet: #ffffff;
-  --line: #dfe5df;
-  --forest: #1f4d3a;
-  --forest-soft: #e3ede7;
-  --on-forest: #ffffff;
-  --blaze: #f2b63d;
-  --on-blaze: #2b2210;
-  --warn: #b5482f;
-  --font-display: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", system-ui, sans-serif;
+  --ink: #1c2230;        /* text */
+  --ink-soft: #5a6170;
+  --edge: #1c2230;       /* outlines and hard shadows */
+  --board: #e6f1ea;      /* board surface */
+  --grid: rgba(28, 34, 48, .07);
+  --card: #ffffff;
+  --red: #e5483b;   --on-red: #ffffff;
+  --yellow: #f6c445; --on-yellow: #1c2230;
+  --blue: #3a6fd6;  --on-blue: #ffffff;
+  --green: #2f9e6a; --on-green: #ffffff;
+  --warn: #c2412d;
+  --font-display: "Dela Gothic One", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   --gutter-l: max(16px, env(safe-area-inset-left, 0px));
   --gutter-r: max(16px, env(safe-area-inset-right, 0px));
@@ -34,15 +35,13 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --ink: #e8eee9;
-    --ink-soft: #9fb0a7;
-    --paper: #0f1613;
-    --sheet: #17211c;
-    --line: #2a3832;
-    --forest: #7fc4a1;
-    --forest-soft: #213229;
-    --on-forest: #0f1613;
-    --warn: #ee8a6f;
+    --ink: #eef2ee;
+    --ink-soft: #a3b0a8;
+    --edge: #05080a;
+    --board: #15211b;
+    --grid: rgba(255, 255, 255, .05);
+    --card: #22302a;
+    --warn: #ff8a73;
     color-scheme: dark;
   }
 }
@@ -50,163 +49,166 @@
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
 body {
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: 16px;
-  display: flex;
-  flex-direction: column;
-  height: 100dvh;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-text-size-adjust: 100%;
+  background: var(--board); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px;
+  display: flex; flex-direction: column; height: 100dvh;
+  -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%;
 }
 button, input { font: inherit; color: inherit; }
-button { touch-action: manipulation; }
+button { touch-action: manipulation; cursor: pointer; }
+
+/* shared game-piece look */
+.piece { border: 2.5px solid var(--edge); box-shadow: 3px 3px 0 var(--edge); }
+@media (prefers-reduced-motion: no-preference) {
+  .press { transition: transform .08s, box-shadow .08s; }
+  .press:active { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--edge); }
+}
 
 /* ---- map ---- */
 .map-wrap { position: relative; flex: 1 1 auto; min-height: 30dvh; }
-#map { position: absolute; inset: 0; background: var(--forest-soft); }
+#map { position: absolute; inset: 0; background: var(--board); }
 .map-badge {
   position: absolute; z-index: 400;
   top: calc(env(safe-area-inset-top, 0px) + 10px); left: var(--gutter-l);
-  background: var(--sheet); color: var(--forest);
-  font-family: var(--font-display); font-weight: 900; font-size: 15px; letter-spacing: .05em;
-  padding: 6px 12px; border-radius: 999px; box-shadow: 0 1px 6px rgba(0,0,0,.18);
+  display: flex; align-items: center; gap: 8px;
+  background: var(--card); color: var(--ink); border-radius: 12px; padding: 5px 12px 5px 6px;
+  font-family: var(--font-display); font-size: 15px; letter-spacing: .04em;
 }
+.map-badge svg { width: 26px; height: 26px; flex: none; }
 .map-fab {
-  position: absolute; z-index: 400; right: var(--gutter-r); bottom: 28px;
-  width: 44px; height: 44px; border-radius: 50%; border: 0; cursor: pointer;
-  background: var(--sheet); color: var(--forest); box-shadow: 0 1px 6px rgba(0,0,0,.22);
+  position: absolute; z-index: 400; right: var(--gutter-r); bottom: 30px;
+  width: 44px; height: 44px; border-radius: 10px; background: var(--card); color: var(--ink);
   display: grid; place-items: center;
 }
 .map-fab svg { width: 22px; height: 22px; }
 
-/* ---- sheet ---- */
+/* ---- board sheet ---- */
 .sheet {
-  flex: 0 1 auto;
-  max-height: 52dvh;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  background: var(--sheet);
-  border-radius: 20px 20px 0 0;
-  margin-top: -16px;
-  position: relative; z-index: 500;
-  box-shadow: 0 -2px 12px rgba(0,0,0,.08);
+  flex: 0 1 auto; max-height: 52dvh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  position: relative; z-index: 500; margin-top: -14px;
+  background-color: var(--board);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  border-top: 3px solid var(--edge); border-radius: 18px 18px 0 0;
 }
 .sheet-in {
-  padding-block: 10px 14px;
+  padding-block: 10px 18px;
   padding-left: var(--gutter-l); padding-right: var(--gutter-r);
   display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr);
   max-width: 560px; margin: 0 auto;
 }
-.grip { width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto; }
-.label { font-size: 12px; color: var(--ink-soft); letter-spacing: .08em; margin-bottom: 8px; font-weight: 700; }
-.loc { font-size: 12px; color: var(--ink-soft); margin-top: 6px; line-height: 1.5; white-space: pre-line; }
+.grip { width: 44px; height: 5px; border-radius: 3px; background: var(--edge); opacity: .35; margin: 0 auto; }
+
+.panel { background: var(--card); border-radius: 14px; padding: 12px 14px 14px; min-width: 0; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.panel-title { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 14px; letter-spacing: .04em; margin: 0; }
+.space { width: 18px; height: 18px; border-radius: 4px; border: 2px solid var(--edge); flex: none; }
+.space.red { background: var(--red); } .space.blue { background: var(--blue); }
+.space.green { background: var(--green); } .space.yellow { background: var(--yellow); }
+
+.loc { font-size: 12px; color: var(--ink-soft); margin-top: 8px; line-height: 1.5; white-space: pre-line; }
 .loc.bad { color: var(--warn); }
 
 .addr { display: flex; gap: 8px; margin: 0; }
 .addr input {
-  flex: 1; min-width: 0; font-size: 16px; padding: 12px 12px; height: 46px;
-  border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
+  flex: 1; min-width: 0; font-size: 16px; padding: 0 12px; height: 46px;
+  border: 2.5px solid var(--edge); border-radius: 10px; background: var(--board);
 }
-.addr input:focus-visible { outline: 3px solid var(--blaze); outline-offset: 1px; }
-.icon-btn {
-  flex: none; height: 46px; min-width: 46px; padding: 0 14px; border: 0; border-radius: 12px;
-  background: var(--forest-soft); color: var(--forest); font-weight: 700; font-size: 14px; cursor: pointer;
+.tile-btn {
+  flex: none; height: 46px; min-width: 46px; padding: 0 12px; border-radius: 10px;
+  background: var(--card); font-weight: 700; font-size: 14px; display: grid; place-items: center;
 }
-.cands { display: grid; gap: 6px; margin-top: 8px; }
-.cand {
-  font-size: 14px; text-align: left; padding: 12px; border-radius: 12px; min-height: 44px;
-  border: 1px solid var(--line); background: transparent; cursor: pointer;
-}
-.cand:active { background: var(--forest-soft); }
+.tile-btn.primary { background: var(--blue); color: var(--on-blue); }
+.cands { display: grid; gap: 8px; margin-top: 10px; }
+.cand { font-size: 14px; text-align: left; padding: 10px 12px; border-radius: 10px; min-height: 44px; background: var(--card); }
 .cands .msg { font-size: 13px; color: var(--warn); line-height: 1.5; }
 
-.time-row { display: flex; align-items: center; gap: 14px; }
-.time-big {
-  font-family: var(--font-display); font-weight: 900; font-size: 46px; line-height: 1;
-  font-variant-numeric: tabular-nums; min-width: 3.6ch;
-}
-.time-big small { font-size: 16px; font-weight: 700; margin-left: 2px; }
-.time-big .sub { display: block; font-family: var(--font-body); font-size: 12px; font-weight: 400; color: var(--ink-soft); margin-top: 4px; }
-input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 36px; }
-.chips {
-  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
-  margin: 10px calc(-1 * var(--gutter-r)) 0 0; padding-right: var(--gutter-r);
-}
+.big-row { display: flex; align-items: center; gap: 14px; }
+.big { font-family: var(--font-display); font-size: 44px; line-height: 1; font-variant-numeric: tabular-nums; min-width: 3.4ch; }
+.big small { font-size: 16px; margin-left: 2px; }
+.big .sub { display: block; font-family: var(--font-body); font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
+input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36px; }
+.chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px 4px 6px 2px; margin-top: 10px; }
 .chips::-webkit-scrollbar { display: none; }
-.chip {
-  flex: none; font-size: 15px; height: 40px; padding: 0 16px; border-radius: 999px;
-  border: 1px solid var(--line); background: transparent; cursor: pointer;
+.chip { flex: none; height: 40px; min-width: 52px; padding: 0 12px; border-radius: 10px; background: var(--card); font-size: 15px; font-weight: 700; }
+.chip[aria-pressed=true], .seg button[aria-pressed=true], .mini-seg button[aria-pressed=true] {
+  background: var(--yellow); color: var(--on-yellow); transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--edge);
 }
-.chip[aria-pressed=true] { background: var(--forest); border-color: var(--forest); color: var(--on-forest); font-weight: 700; }
 
-.label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.label-row .label { margin-bottom: 0; }
-.mini-seg { display: flex; background: var(--paper); border-radius: 10px; padding: 3px; gap: 3px; }
-.mini-seg button { height: 32px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; font-size: 14px; }
-.mini-seg button[aria-pressed=true] { background: var(--sheet); color: var(--forest); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-.mini-seg button:focus-visible { outline: 3px solid var(--blaze); outline-offset: 2px; }
-.seg { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--paper); border-radius: 12px; padding: 4px; gap: 4px; }
-.seg button { height: 40px; border: 0; border-radius: 9px; background: transparent; cursor: pointer; font-size: 15px; }
-.seg button[aria-pressed=true] { background: var(--sheet); color: var(--forest); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-.seg small { display: block; font-size: 10px; color: var(--ink-soft); font-weight: 400; }
+.mini-seg { display: flex; gap: 6px; }
+.mini-seg button { height: 32px; padding: 0 12px; border-radius: 8px; background: var(--card); font-size: 13px; font-weight: 700; box-shadow: 2px 2px 0 var(--edge); }
+.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 4px 4px 0; }
+.seg button { height: 48px; border-radius: 10px; background: var(--card); font-size: 15px; font-weight: 700; line-height: 1.15; }
+.seg small { display: block; font-size: 10px; font-weight: 400; opacity: .75; }
 
-.result {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 6px;
-  background: var(--forest-soft); border-radius: 14px; padding: 12px 14px;
-}
-.stat { min-width: 0; }
-.stat b { display: block; font-family: var(--font-display); font-size: 17px; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--forest); }
-.stat span { font-size: 11px; color: var(--ink-soft); letter-spacing: .06em; }
-.note { font-size: 12px; color: var(--ink-soft); grid-column: 1 / -1; line-height: 1.5; }
-.note.bad { color: var(--warn); }
-
-.toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; min-height: 44px; padding-block: 6px; }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; font-weight: 700; min-height: 44px; padding-block: 8px; }
+.toggle + .toggle { border-top: 2px dashed var(--grid); }
 .t-text { min-width: 0; }
-.t-text small { display: block; font-size: 11px; color: var(--ink-soft); line-height: 1.5; margin-top: 2px; }
-.toggle.off { opacity: .5; }
-.toggle input { appearance: none; -webkit-appearance: none; width: 50px; height: 30px; border-radius: 15px; background: var(--line); position: relative; cursor: pointer; flex: none; margin: 0; }
-.toggle input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
-.toggle input:checked { background: var(--forest); }
+.t-text small { display: block; font-size: 11px; font-weight: 400; color: var(--ink-soft); line-height: 1.5; margin-top: 2px; }
+.toggle.off { opacity: .45; }
+.toggle input {
+  appearance: none; -webkit-appearance: none; flex: none; margin: 0; cursor: pointer;
+  width: 52px; height: 30px; border-radius: 8px; border: 2.5px solid var(--edge); background: var(--board); position: relative;
+}
+.toggle input::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 21px; height: 21px; border-radius: 5px;
+  background: var(--card); border: 2px solid var(--edge);
+}
+.toggle input:checked { background: var(--green); }
 .toggle input:checked::after { left: 23px; }
 @media (prefers-reduced-motion: no-preference) { .toggle input::after { transition: left .15s; } }
 
-/* ---- action bar ---- */
+.result { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat { min-width: 0; background: var(--board); border: 2px solid var(--edge); border-radius: 10px; padding: 7px 8px 6px; }
+.stat b { display: block; font-family: var(--font-display); font-weight: 400; font-size: 17px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.stat span { display: block; font-size: 10.5px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note { font-size: 12px; color: var(--ink-soft); line-height: 1.5; margin-top: 10px; }
+.note.bad { color: var(--warn); }
+
+/* ---- dice action bar ---- */
 .actions {
-  flex: none; background: var(--sheet); border-top: 1px solid var(--line); position: relative; z-index: 600;
-  padding-top: 10px; padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  flex: none; position: relative; z-index: 600; background: var(--card); border-top: 3px solid var(--edge);
+  padding-top: 12px; padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
   padding-left: var(--gutter-l); padding-right: var(--gutter-r);
 }
-.actions-in { display: flex; gap: 10px; max-width: 560px; margin: 0 auto; }
+.actions-in { display: flex; gap: 10px; max-width: 560px; margin: 0 auto; padding: 0 4px 4px 0; }
 .btn {
-  height: 54px; border: 0; border-radius: 16px; cursor: pointer; font-weight: 700; font-size: 17px;
-  display: flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; padding: 0 14px;
+  height: 54px; border-radius: 14px; font-family: var(--font-display); font-weight: 400; font-size: 17px; letter-spacing: .03em;
+  display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; padding: 0 14px;
+  border: 3px solid var(--edge); box-shadow: 4px 4px 0 var(--edge);
 }
-.btn-main { flex: 1; background: var(--forest); color: var(--on-forest); }
-.btn-go { flex: 1; background: var(--blaze); color: var(--on-blaze); }
-.btn-sub { flex: none; background: var(--forest-soft); color: var(--forest); font-size: 15px; }
+.btn svg { width: 28px; height: 28px; flex: none; }
+.btn-main { flex: 1; background: var(--red); color: var(--on-red); }
+.btn-go { flex: 1; min-width: 0; background: var(--yellow); color: var(--on-yellow); font-size: 15px; white-space: nowrap; padding: 0 8px; }
+.btn-sub { flex: none; background: var(--card); color: var(--ink); font-size: 14px; padding: 0 12px; }
 .btn[disabled] { opacity: .5; }
-.btn:focus-visible, .chip:focus-visible, .seg button:focus-visible, .icon-btn:focus-visible, .cand:focus-visible, .map-fab:focus-visible, .toggle input:focus-visible { outline: 3px solid var(--blaze); outline-offset: 2px; }
-@media (prefers-reduced-motion: no-preference) { .btn:active, .chip:active { transform: scale(.97); } .btn, .chip { transition: transform .08s; } }
 
+:is(.btn, .chip, .seg button, .mini-seg button, .tile-btn, .cand, .map-fab, .toggle input, .addr input):focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+
+/* ---- map pieces ---- */
 .wp-icon {
-  background: #1f4d3a; color: #fff; border: 2px solid #fff; border-radius: 50%;
-  font: 700 12px/20px var(--font-body); text-align: center;
-  box-shadow: 0 1px 4px rgba(0,0,0,.35);
+  background: #3a6fd6; color: #fff; border: 2.5px solid #1c2230; border-radius: 6px;
+  font: 400 13px/21px "Dela Gothic One", sans-serif; text-align: center; box-shadow: 2px 2px 0 #1c2230;
 }
-.wp-icon.home { background: #f2b63d; color: #2b2210; }
-.busy { position: fixed; inset: 0; display: grid; place-items: center; z-index: 1000; background: rgba(0,0,0,.3); }
-.busy div { background: var(--sheet); color: var(--ink); padding: 16px 22px; border-radius: 14px; font-weight: 700; }
+.wp-icon.home { background: #f6c445; color: #1c2230; border-radius: 999px; font-size: 11px; line-height: 20px; }
+
+/* ---- rolling dice overlay ---- */
+.busy { position: fixed; inset: 0; display: grid; place-items: center; z-index: 1000; background: rgba(10, 14, 20, .45); }
+.busy-card { background: var(--card); color: var(--ink); border-radius: 16px; padding: 18px 22px; display: grid; justify-items: center; gap: 12px; font-weight: 700; max-width: 80vw; text-align: center; }
+.busy-card svg { width: 64px; height: 64px; }
+@media (prefers-reduced-motion: no-preference) {
+  .rolling { animation: tumble .5s ease-in-out infinite alternate; }
+  @keyframes tumble { from { transform: rotate(-18deg) translateY(2px); } to { transform: rotate(18deg) translateY(-4px); } }
+}
 .leaflet-control-attribution { font-size: 10px; }
 </style>
 </head>
 <body>
 <div class="map-wrap">
   <div id="map" aria-label="ルートの地図"></div>
-  <div class="map-badge">さんぽダイス</div>
-  <button class="map-fab" id="fitBtn" type="button" aria-label="ルート全体を表示" hidden>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+  <div class="map-badge piece"><span class="dice-slot" data-face="5"></span>おさんぽダイス</div>
+  <button class="map-fab piece press" id="fitBtn" type="button" aria-label="ルート全体を表示" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
   </button>
 </div>
 
@@ -214,99 +216,110 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
   <div class="sheet-in">
     <div class="grip" aria-hidden="true"></div>
 
-    <div>
-      <div class="label">出発地</div>
+    <div class="panel piece">
+      <div class="panel-head"><h2 class="panel-title"><span class="space red"></span>ふりだし（出発地）</h2></div>
       <form class="addr" id="addrForm">
         <input type="search" id="addr" placeholder="住所・駅名で検索" enterkeyhint="search" autocomplete="off">
-        <button class="icon-btn" id="addrBtn" type="submit">検索</button>
-        <button class="icon-btn" id="gpsBtn" type="button" aria-label="現在地を使う">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        <button class="tile-btn primary piece press" id="addrBtn" type="submit">検索</button>
+        <button class="tile-btn piece press" id="gpsBtn" type="button" aria-label="現在地を使う">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
         </button>
       </form>
       <div class="cands" id="cands" hidden></div>
       <div id="loc" class="loc">現在地を取得中…</div>
     </div>
 
-    <div>
-      <div class="label-row">
-        <div class="label">散歩の長さ</div>
+    <div class="panel piece">
+      <div class="panel-head">
+        <h2 class="panel-title"><span class="space blue"></span>散歩の長さ</h2>
         <div class="mini-seg" id="modeSeg" role="group" aria-label="長さの決め方">
-          <button type="button" data-mode="time">時間</button>
-          <button type="button" data-mode="dist">距離</button>
+          <button class="piece press" type="button" data-mode="time">時間</button>
+          <button class="piece press" type="button" data-mode="dist">距離</button>
         </div>
       </div>
       <div id="timeBox">
-        <div class="time-row">
-          <div class="time-big" id="timeOut">30<small>分</small></div>
+        <div class="big-row">
+          <div class="big" id="timeOut">30<small>分</small></div>
           <input type="range" id="time" min="10" max="120" step="5" value="30" aria-label="散歩する時間（分）">
         </div>
         <div class="chips" id="presets">
-          <button class="chip" type="button" data-min="15">15分</button>
-          <button class="chip" type="button" data-min="30">30分</button>
-          <button class="chip" type="button" data-min="45">45分</button>
-          <button class="chip" type="button" data-min="60">60分</button>
-          <button class="chip" type="button" data-min="90">90分</button>
-          <button class="chip" type="button" data-min="120">120分</button>
+          <button class="chip piece press" type="button" data-min="15">15分</button>
+          <button class="chip piece press" type="button" data-min="30">30分</button>
+          <button class="chip piece press" type="button" data-min="45">45分</button>
+          <button class="chip piece press" type="button" data-min="60">60分</button>
+          <button class="chip piece press" type="button" data-min="90">90分</button>
+          <button class="chip piece press" type="button" data-min="120">120分</button>
         </div>
       </div>
       <div id="distBox" hidden>
-        <div class="time-row">
-          <div class="time-big" id="distOut">3<small>km</small></div>
+        <div class="big-row">
+          <div class="big" id="distOut">3<small>km</small></div>
           <input type="range" id="dist" min="1" max="12" step="0.5" value="3" aria-label="散歩する距離（km）">
         </div>
         <div class="chips" id="distPresets">
-          <button class="chip" type="button" data-km="1">1km</button>
-          <button class="chip" type="button" data-km="2">2km</button>
-          <button class="chip" type="button" data-km="3">3km</button>
-          <button class="chip" type="button" data-km="5">5km</button>
-          <button class="chip" type="button" data-km="8">8km</button>
-          <button class="chip" type="button" data-km="10">10km</button>
+          <button class="chip piece press" type="button" data-km="1">1km</button>
+          <button class="chip piece press" type="button" data-km="2">2km</button>
+          <button class="chip piece press" type="button" data-km="3">3km</button>
+          <button class="chip piece press" type="button" data-km="5">5km</button>
+          <button class="chip piece press" type="button" data-km="8">8km</button>
+          <button class="chip piece press" type="button" data-km="10">10km</button>
         </div>
       </div>
     </div>
 
-    <div>
-      <div class="label">歩く速さ</div>
+    <div class="panel piece">
+      <div class="panel-head"><h2 class="panel-title"><span class="space green"></span>歩く速さ</h2></div>
       <div class="seg" id="speeds">
-        <button type="button" data-speed="65">ゆっくり<small>3.9km/h</small></button>
-        <button type="button" data-speed="80">ふつう<small>4.8km/h</small></button>
-        <button type="button" data-speed="95">早歩き<small>5.7km/h</small></button>
+        <button class="piece press" type="button" data-speed="65">ゆっくり<small>3.9km/h</small></button>
+        <button class="piece press" type="button" data-speed="80">ふつう<small>4.8km/h</small></button>
+        <button class="piece press" type="button" data-speed="95">早歩き<small>5.7km/h</small></button>
       </div>
     </div>
 
-    <div>
-      <div class="label">ルートの好み</div>
+    <div class="panel piece">
+      <div class="panel-head"><h2 class="panel-title"><span class="space yellow"></span>ルートの好み</h2></div>
       <label class="toggle"><span class="t-text">行きと帰りで同じ道をなるべく通らない<small>来た道を引き返すような区間が少ないルートを選びます</small></span><input type="checkbox" id="avoidBack"></label>
-      <label class="toggle"><span class="t-text">坂道をなるべく避ける<small>上り下りが少ないルートを選びます</small></span><input type="checkbox" id="avoidHills"></label>
+      <label class="toggle"><span class="t-text">坂道をなるべく避ける<small>坂に加えて、大通りを渡る歩道橋・地下道や、線路の反対側へ抜ける跨線橋・階段も少ないルートを選びます</small></span><input type="checkbox" id="avoidHills"></label>
       <label class="toggle" id="busyRow"><span class="t-text">車通りの多い大通りをなるべく避ける<small id="busyNote">国道・県道クラスの道が少ないルートを選びます</small></span><input type="checkbox" id="avoidBusy"></label>
       <label class="toggle"><span class="t-text">夜道モード<small>路地・公園の小道・人家の少ない道を避け、街灯や人通りのありそうな通りを優先します</small></span><input type="checkbox" id="night"></label>
     </div>
 
-    <div class="result" id="result" hidden>
-      <div class="stat"><b id="rDist">–</b><span>距離</span></div>
-      <div class="stat"><b id="rTime">–</b><span>予想時間</span></div>
-      <div class="stat"><b id="rSteps">–</b><span>歩数</span></div>
-      <div class="stat"><b id="rBack">–</b><span>同じ道</span></div>
-      <div class="stat"><b id="rClimb">–</b><span>上りの合計</span></div>
-      <div class="stat"><b id="rSteep">–</b><span>一番急な坂</span></div>
-      <div class="stat"><b id="rBusy">–</b><span>大通り</span></div>
-      <div class="stat"><b id="rDark">–</b><span>暗くなりやすい道</span></div>
+    <div class="panel piece" id="result" hidden>
+      <div class="panel-head"><h2 class="panel-title"><span class="space red"></span>今回のコース</h2></div>
+      <div class="result">
+        <div class="stat"><b id="rDist">–</b><span>距離</span></div>
+        <div class="stat"><b id="rTime">–</b><span>予想時間</span></div>
+        <div class="stat"><b id="rSteps">–</b><span>歩数</span></div>
+        <div class="stat"><b id="rBack">–</b><span>同じ道</span></div>
+        <div class="stat"><b id="rClimb">–</b><span>上りの合計</span></div>
+        <div class="stat"><b id="rSteep">–</b><span>一番急な坂</span></div>
+        <div class="stat"><b id="rStairs">–</b><span>歩道橋・階段</span></div>
+        <div class="stat"><b id="rBusy">–</b><span>大通り</span></div>
+        <div class="stat"><b id="rDark">–</b><span>暗い道</span></div>
+      </div>
       <div class="note" id="rNote"></div>
     </div>
 
-    <label class="toggle"><span class="t-text">Googleマップですぐに道案内を始める<small>オン：Googleマップが開くと同時に、音声つきのナビが始まります。<br>オフ：まずルート全体が表示されます。確認してから、自分で「開始」を押してナビを始めます。</small></span><input type="checkbox" id="navNow"></label>
+    <div class="panel piece">
+      <label class="toggle"><span class="t-text">Googleマップですぐに道案内を始める<small>オン：Googleマップが開くと同時に、音声つきのナビが始まります。<br>オフ：まずルート全体が表示されます。確認してから、自分で「開始」を押してナビを始めます。</small></span><input type="checkbox" id="navNow"></label>
+    </div>
   </div>
 </section>
 
 <nav class="actions">
   <div class="actions-in">
-    <button class="btn btn-main" id="roll" type="button">ルートを作る</button>
-    <button class="btn btn-sub" id="reroll" type="button" hidden>別のルート</button>
-    <a class="btn btn-go" id="go" href="#" target="_blank" rel="noopener" hidden>Googleマップで開く</a>
+    <button class="btn btn-main press" id="roll" type="button"><span class="dice-slot" data-face="5"></span>サイコロをふる</button>
+    <button class="btn btn-sub press" id="reroll" type="button" hidden><span class="dice-slot" data-face="3"></span>ふりなおす</button>
+    <a class="btn btn-go press" id="go" href="#" target="_blank" rel="noopener" hidden>Googleマップで出発</a>
   </div>
 </nav>
 
-<div class="busy" id="busy" hidden><div id="busyMsg">ルートを計算中…</div></div>
+<div class="busy" id="busy" hidden>
+  <div class="busy-card piece">
+    <span class="rolling" id="busyDice"></span>
+    <div id="busyMsg">サイコロをふっています…</div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
@@ -341,12 +354,23 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
   }).addTo(map);
   let originMarker = null;
   const routeLayer = L.layerGroup().addTo(map);
-  const icon = (txt, home) => L.divIcon({ className: "wp-icon" + (home ? " home" : ""), html: txt, iconSize: [26, 26], iconAnchor: [13, 13] });
+  const icon = (txt, home) => home
+    ? L.divIcon({ className: "wp-icon home", html: txt, iconSize: [62, 26], iconAnchor: [31, 13] })
+    : L.divIcon({ className: "wp-icon", html: txt, iconSize: [26, 26], iconAnchor: [13, 13] });
+
+  // ---------- サイコロの絵 ----------
+  const PIPS = { 1: [[2, 2]], 2: [[1, 1], [3, 3]], 3: [[1, 1], [2, 2], [3, 3]], 4: [[1, 1], [3, 1], [1, 3], [3, 3]],
+                 5: [[1, 1], [3, 1], [2, 2], [1, 3], [3, 3]], 6: [[1, 1], [3, 1], [1, 2], [3, 2], [1, 3], [3, 3]] };
+  function diceSVG(n) {
+    const dots = PIPS[n].map(([x, y]) => `<circle cx="${x * 8 + 4}" cy="${y * 8 + 4}" r="3" fill="${n === 1 ? "#e5483b" : "#1c2230"}"/>`).join("");
+    return `<svg viewBox="0 0 36 36" aria-hidden="true"><rect x="2" y="2" width="32" height="32" rx="7" fill="#fff" stroke="#1c2230" stroke-width="3"/>${dots}</svg>`;
+  }
+  document.querySelectorAll(".dice-slot").forEach((el) => { el.innerHTML = diceSVG(+el.dataset.face); el.style.display = "flex"; });
 
   function setOrigin(lat, lng, label) {
     origin = { lat, lng };
     if (originMarker) originMarker.setLatLng([lat, lng]);
-    else originMarker = L.marker([lat, lng], { icon: icon("家", true) }).addTo(map);
+    else originMarker = L.marker([lat, lng], { icon: icon("ふりだし", true) }).addTo(map);
     $("loc").textContent = label;
     $("loc").classList.remove("bad");
     if (!route) map.setView([lat, lng], 15);
@@ -451,7 +475,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     if (list.length === 1) { pickPlace(list[0]); return; }
     list.forEach((p) => {
       const b = document.createElement("button");
-      b.type = "button"; b.className = "cand"; b.textContent = p.name;
+      b.type = "button"; b.className = "cand piece press"; b.textContent = p.name;
       b.addEventListener("click", () => pickPlace(p));
       box.appendChild(b);
     });
@@ -535,6 +559,58 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     };
   }
 
+  // ---------- 国土地理院の標高タイル ----------
+  // 画像の色に標高が入っている（RGB → 0.01m 単位）。5mメッシュ（dem5a）がなければ10mメッシュ（dem10b）
+  const DEM_SOURCES = [{ name: "dem5a_png", z: 15 }, { name: "dem10b_png", z: 14 }];
+  const demCache = new Map();
+  function demTile(src, z, x, y) {
+    const key = `${src}/${z}/${x}/${y}`;
+    if (!demCache.has(key)) {
+      demCache.set(key, (async () => {
+        const r = await fetch(`https://cyberjapandata.gsi.go.jp/xyz/${src}/${z}/${x}/${y}.png`);
+        if (!r.ok) return null;                     // 海など、データのない場所
+        const bmp = await createImageBitmap(await r.blob());
+        const c = document.createElement("canvas"); c.width = c.height = 256;
+        const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(bmp, 0, 0);
+        return g.getImageData(0, 0, 256, 256).data;
+      })().catch(() => null));
+    }
+    return demCache.get(key);
+  }
+  async function groundHeight(lat, lng) {
+    for (const { name, z } of DEM_SOURCES) {
+      const n = 2 ** z, fx = (lng + 180) / 360 * n;
+      const fy = (1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n;
+      const x = Math.floor(fx), y = Math.floor(fy);
+      const data = await demTile(name, z, x, y);
+      if (!data) continue;
+      const px = Math.min(255, Math.floor((fx - x) * 256)), py = Math.min(255, Math.floor((fy - y) * 256));
+      const i = (py * 256 + px) * 4;
+      const v = data[i] * 65536 + data[i + 1] * 256 + data[i + 2];
+      if (v === 8388608 || data[i + 3] === 0) continue; // 「データなし」
+      return (v < 8388608 ? v : v - 16777216) * 0.01;
+    }
+    return null;
+  }
+  // ルートに沿って 30m ごとの [距離, 標高] を作る
+  async function gsiProfile(line) {
+    if (!line || line.length < 2) return null;
+    const samples = []; let s = 0, next = 0;
+    for (let i = 1; i < line.length; i++) {
+      const a = { lat: line[i - 1][0], lng: line[i - 1][1] }, b = { lat: line[i][0], lng: line[i][1] };
+      const seg = haversine(a, b);
+      while (next <= s + seg) {
+        const t = seg ? (next - s) / seg : 0;
+        samples.push([next, a.lat + (b.lat - a.lat) * t, a.lng + (b.lng - a.lng) * t]);
+        next += 30;
+      }
+      s += seg;
+    }
+    const out = [];
+    for (const [d, la, lo] of samples) { const h = await groundHeight(la, lo); if (h != null) out.push([d, h]); }
+    return out.length >= samples.length * 0.7 ? out : null;  // 3割以上取れなければ使わない
+  }
+
   // ルートの坂と大通りを調べる
   async function inspect(res) {
     // 長いルートは間引いて送る（精度は十分）
@@ -545,11 +621,25 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     const retry = async (fn) => { try { return await fn(); } catch { await new Promise((r) => setTimeout(r, 1200)); return fn().catch(() => null); } };
     const ta = await retry(() => getJson(VALHALLA + "trace_attributes", {
       encoded_polyline: poly, shape_match: "map_snap", costing: "pedestrian",
-      filters: { attributes: ["edge.road_class", "edge.length", "edge.use", "edge.density"], action: "include" }
+      filters: { attributes: ["edge.road_class", "edge.length", "edge.use", "edge.density", "edge.bridge", "edge.tunnel"], action: "include" }
     }));
-    const h = await retry(() => getJson(VALHALLA + "height", { encoded_polyline: poly, range: true, resample_distance: 30 }));
-    const out = { busy: null, climb: null, steep: null, dark: null, lively: null };
+    // 標高：国土地理院（建物を除いた地面の高さ）→ 取れなければ Valhalla（建物や木の高さが混ざることがある）
+    let profile = await gsiProfile(res.line).catch(() => null);
+    if (!profile) {
+      const h = await retry(() => getJson(VALHALLA + "height", { encoded_polyline: poly, range: true, resample_distance: 30 }));
+      profile = h && h.range_height ? h.range_height.filter((x) => x[1] != null && x[1] > -1000) : null;
+    }
+    const out = { busy: null, climb: null, steep: null, dark: null, lively: null, steps: null };
     if (ta && ta.edges) {
+      // 歩道橋・地下道・跨線橋・階段（標高データには出ない上り下り）を、続いている区間ごとに1か所と数える
+      let steps = 0, inEvent = false;
+      ta.edges.forEach((e) => {
+        const walkway = STEP_USES.has(e.use);
+        const isStep = e.use === "steps" || e.use === "elevator" || (walkway && (e.bridge || e.tunnel));
+        if (isStep && !inEvent) steps++;
+        inEvent = isStep;
+      });
+      out.steps = steps;
       let all = 0, busyLen = 0, darkLen = 0, livelyLen = 0;
       ta.edges.forEach((e) => {
         const len = e.length || 0; all += len;
@@ -559,8 +649,8 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
       });
       if (all > 0) { out.busy = busyLen / all; out.dark = darkLen / all; out.lively = livelyLen / all; }
     }
-    if (h && h.range_height && h.range_height.length > 2) {
-      const raw = h.range_height.filter((x) => x[1] != null && x[1] > -1000);
+    if (profile && profile.length > 2) {
+      const raw = profile;
       // 標高データは建物や木の影響で数m揺れるので、前後5点（約150m）でならしてから数える
       const rh = raw.map(([d], i) => {
         const win = raw.slice(Math.max(0, i - 2), i + 3);
@@ -581,6 +671,11 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     }
     return out;
   }
+
+  // 歩行者専用の道。これが橋（歩道橋・跨線橋）やトンネル（地下道）なら上り下りがある。
+  // 車道の橋（川を渡る橋など）はほぼ平らなので数えない
+  const STEP_USES = new Set(["footway", "path", "pedestrian", "steps", "elevator", "cycleway"]);
+  const STEP_CLIMB = 6; // 1か所あたりの上り（m）の目安。歩道橋の高さはおよそ5〜6m
 
   // 夜に暗くなりやすい道：路地・公園や緑地の小道・階段・駐車場の通路・人家の少ない地域の道
   const DARK_USES = new Set(["alley", "path", "track", "steps", "driveway", "parking_aisle", "cycleway", "mountain_bike", "bridleway"]);
@@ -627,8 +722,12 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     let p = 0;
     if (avoidBack() && c.back != null) p += c.back * 120;                        // 同じ道 10% → 12点
     if (avoidBusy() && c.busy != null) p += c.busy * 100;                        // 大通り 10% → 10点
-    if (avoidHills() && c.climb != null) p += c.climb / (c.distance / 1000) * 1.5   // 1kmあたり 10m 上る → 15点
-                                          + Math.max(0, c.steep - 5) * 3;          // 5% を超える急坂
+    if (avoidHills()) {
+      const climb = (c.climb || 0) + (c.steps || 0) * STEP_CLIMB;  // 歩道橋・階段の上りも足す
+      p += climb / (c.distance / 1000) * 1.5                        // 1kmあたり 10m 上る → 15点
+         + Math.max(0, (c.steep || 0) - 5) * 3                      // 5% を超える急坂
+         + (c.steps || 0) * 4;                                      // 階段そのものの負担
+    }
     if (nightMode() && c.dark != null) p += c.dark * 150 - (c.lively || 0) * 30;  // 暗い道 10% → 15点、表通りは少し加点
     return p;
   }
@@ -650,7 +749,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     const cands = [];
     let fallback = null, budget = ROUTE_BUDGET, routed = true, lastErr = null;
 
-    busy(true, "ルートを計算中…");
+    busy(true, "サイコロをふっています…");
     try {
       while (cands.length < want && budget > 0) {
         let shape = randomShape(), r = r0;
@@ -668,7 +767,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
           if (err <= TOLERANCE) { cands.push({ ...res, err }); break; }
           r *= Math.pow(target / res.distance, 0.9);
         }
-        if (want > 1) busyMsg(`候補を探しています（${cands.length}/${want}）`);
+        if (want > 1) busyMsg(`コースの候補を探しています（${cands.length}/${want}）`);
       }
       if (!cands.length && fallback) cands.push(fallback);
       if (!cands.length) throw new Error("no candidate");
@@ -683,7 +782,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
       const shape = randomShape();
       const wps = waypointsFor(shape, r0);
       const wps2 = waypointsFor(shape, r0 * target / (straightLength(wps) * ROAD_FACTOR));
-      route = { snapped: wps2, distance: straightLength(wps2) * ROAD_FACTOR, line: null, routed, target, busy: null, climb: null, steep: null, dark: null, back: null };
+      route = { snapped: wps2, distance: straightLength(wps2) * ROAD_FACTOR, line: null, routed, target, busy: null, climb: null, steep: null, dark: null, back: null, steps: null };
     } finally { busy(false); }
     draw();
   }
@@ -704,8 +803,10 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
   function draw() {
     routeLayer.clearLayers();
     const stops = route.snapped;
-    if (route.line) L.polyline(route.line, { color: "#1f4d3a", weight: 6, opacity: .85 }).addTo(routeLayer);
-    else L.polyline([origin, ...stops, origin].map((p) => [p.lat, p.lng]), { color: "#1f4d3a", weight: 4, dashArray: "6 8" }).addTo(routeLayer);
+    // すごろくの道：黒い縁取りの上に黄色い道
+    const pathPts = route.line || [origin, ...stops, origin].map((p) => [p.lat, p.lng]);
+    L.polyline(pathPts, { color: "#1c2230", weight: 10, opacity: .9, lineJoin: "round" }).addTo(routeLayer);
+    L.polyline(pathPts, { color: "#f6c445", weight: 5, opacity: 1, lineJoin: "round", dashArray: route.line ? null : "8 8" }).addTo(routeLayer);
     stops.forEach((p, i) => L.marker([p.lat, p.lng], { icon: icon(String(i + 1)) }).addTo(routeLayer));
     fitRoute();
     renderStats();
@@ -723,6 +824,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     const pct = (v) => v == null ? "–" : Math.round(v * 100) + "%";
     $("rBack").textContent = pct(route.back);
     $("rDark").textContent = pct(route.dark);
+    $("rStairs").textContent = route.steps == null ? "–" : (route.steps === 0 ? "なし" : route.steps + "か所");
     const note = $("rNote");
     if (!route.routed) {
       note.textContent = "経路サーバーに接続できなかったため、直線距離からの概算です。";
@@ -748,7 +850,18 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--forest); height: 
     $("go").href = gmapsUrl();
   });
 
-  function busy(on, msg) { $("busy").hidden = !on; $("roll").disabled = on; $("reroll").disabled = on; if (msg) busyMsg(msg); }
+  // 計算中はサイコロの目を次々に変えて転がっているように見せる
+  let diceTimer = null;
+  function busy(on, msg) {
+    $("busy").hidden = !on; $("roll").disabled = on; $("reroll").disabled = on;
+    if (msg) busyMsg(msg);
+    clearInterval(diceTimer);
+    if (on) {
+      const roll = () => { $("busyDice").innerHTML = diceSVG(1 + Math.floor(Math.random() * 6)); };
+      roll();
+      if (!matchMedia("(prefers-reduced-motion: reduce)").matches) diceTimer = setInterval(roll, 180);
+    }
+  }
   function busyMsg(msg) { $("busyMsg").textContent = msg; }
 
   // ---------- controls ----------
