@@ -145,9 +145,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
 .toggle + .toggle { border-top: 2px dashed var(--grid); }
 .t-text { min-width: 0; }
 .t-text small { display: block; font-size: 11px; font-weight: 400; color: var(--ink-soft); line-height: 1.5; margin-top: 2px; }
-.toggle.off { opacity: .45; }
-.pref-note { margin: 8px 0 0; padding-top: 10px; border-top: 2px dashed var(--grid); font-size: 11px; color: var(--ink-soft); line-height: 1.5; }
-.toggle input {
+.toggle.off { opacity: .45; }.toggle input {
   appearance: none; -webkit-appearance: none; flex: none; margin: 0; cursor: pointer;
   width: 52px; height: 30px; border-radius: 8px; border: 2.5px solid var(--edge); background: var(--board); position: relative;
 }
@@ -282,9 +280,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
       <label class="toggle"><span class="t-text">行きと帰りで同じ道をなるべく通らない<small>散歩に飽きないように、来た道を引き返す区間が少ないルートを選びます</small></span><input type="checkbox" id="avoidBack"></label>
       <label class="toggle"><span class="t-text">坂道をなるべく避ける<small>気軽に歩けるように、坂や階段・歩道橋・地下道・跨線橋が少ないルートを選びます</small></span><input type="checkbox" id="avoidHills"></label>
       <label class="toggle" id="busyRow"><span class="t-text">車通りの多い大通りをなるべく避ける<small id="busyNote">排気ガスや騒音が気にならないように、国道・県道クラスの道が少ないルートを選びます</small></span><input type="checkbox" id="avoidBusy"></label>
-      <label class="toggle"><span class="t-text">夜道モード<small>夜道を一人で歩くのが不安なときに。路地・公園の小道・人家の少ない道を避け、街灯や人通りのありそうな通りを優先します</small></span><input type="checkbox" id="night"></label>
-      <p class="pref-note" id="crowdNote">ふだんは、駅のまわり・駅の通り抜け・商店街など人通りの多い場所を自動で避けます。</p>
-    </div>
+      <label class="toggle"><span class="t-text">夜道モード<small>夜道を一人で歩くのが不安なときに。路地・公園の小道・人家の少ない道を避け、街灯や人通りのありそうな通りを優先します</small></span><input type="checkbox" id="night"></label>    </div>
 
     <div class="panel piece" id="result" hidden>
       <div class="panel-head"><h2 class="panel-title"><span class="space red"></span>今回のコース</h2></div>
@@ -364,7 +360,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
   const PIPS = { 1: [[2, 2]], 2: [[1, 1], [3, 3]], 3: [[1, 1], [2, 2], [3, 3]], 4: [[1, 1], [3, 1], [1, 3], [3, 3]],
                  5: [[1, 1], [3, 1], [2, 2], [1, 3], [3, 3]], 6: [[1, 1], [3, 1], [1, 2], [3, 2], [1, 3], [3, 3]] };
   function diceSVG(n) {
-    const dots = PIPS[n].map(([x, y]) => `<circle cx="${x * 8 + 4}" cy="${y * 8 + 4}" r="3" fill="${n === 1 ? "#e5483b" : "#1c2230"}"/>`).join("");
+    const dots = PIPS[n].map(([x, y]) => `<circle cx="${x * 8 + 2}" cy="${y * 8 + 2}" r="3" fill="${n === 1 ? "#e5483b" : "#1c2230"}"/>`).join("");
     return `<svg viewBox="0 0 36 36" aria-hidden="true"><rect x="2" y="2" width="32" height="32" rx="7" fill="#fff" stroke="#1c2230" stroke-width="3"/>${dots}</svg>`;
   }
   document.querySelectorAll(".dice-slot").forEach((el) => { el.innerHTML = diceSVG(+el.dataset.face); el.style.display = "flex"; });
@@ -957,11 +953,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
     $("avoidBusy").disabled = n;
     $("busyNote").textContent = n
       ? "夜道モード中は、人通りのある表通りを優先するため使いません"
-      : "排気ガスや騒音が気にならないように、国道・県道クラスの道が少ないルートを選びます";
-    $("crowdNote").textContent = n
-      ? "夜道モード中は、駅前や商店街を避けず、人通りのありそうな表通りを優先します。"
-      : "ふだんは、駅のまわり・駅の通り抜け・商店街など人通りの多い場所を自動で避けます。";
-  }
+      : "排気ガスや騒音が気にならないように、国道・県道クラスの道が少ないルートを選びます";  }
   renderPrefs();
   $("roll").addEventListener("click", generate);
   $("reroll").addEventListener("click", generate);
