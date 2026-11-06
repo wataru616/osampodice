@@ -19,7 +19,1217 @@
   --ink: #1c2230;        /* text */
   --ink-soft: #5a6170;
   --edge: #1c2230;       /* outlines and hard shadows */
+  --board: #e6f1ea;      /* board surface */<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>おさんぽダイス</title>
+<meta name="theme-color" content="#1c2230">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="おさんぽダイス">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout (phone first): map on top / sugoroku-board sheet of game cards / dice action bar pinned to the bottom.
+   Look: tabletop board game — graph-paper board, thick ink outlines, hard offset shadows, colour-coded spaces. */
+:root {
+  --ink: #1c2230;        /* text */
+  --ink-soft: #5a6170;
+  --edge: #1c2230;       /* outlines and hard shadows */
   --board: #e6f1ea;      /* board surface */
+  --grid: rgba(28, 34, 48, .07);
+  --card: #ffffff;
+  --red: #e5483b;   --on-red: #ffffff;
+  --yellow: #f6c445; --on-yellow: #1c2230;
+  --blue: #3a6fd6;  --on-blue: #ffffff;
+  --green: #2f9e6a; --on-green: #ffffff;
+  --warn: #c2412d;
+  --font-display: "Dela Gothic One", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --gutter-l: max(16px, env(safe-area-inset-left, 0px));
+  --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #eef2ee;
+    --ink-soft: #a3b0a8;
+    --edge: #05080a;
+    --board: #15211b;
+    --grid: rgba(255, 255, 255, .05);
+    --card: #22302a;
+    --warn: #ff8a73;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
+body {
+  background: var(--board); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px;
+  display: flex; flex-direction: column; height: 100dvh;
+  -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%;
+}
+button, input { font: inherit; color: inherit; }
+button { touch-action: manipulation; cursor: pointer; }
+
+/* shared game-piece look */
+.piece { border: 2.5px solid var(--edge); box-shadow: 3px 3px 0 var(--edge); }
+@media (prefers-reduced-motion: no-preference) {
+  .press { transition: transform .08s, box-shadow .08s; }
+  .press:active { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--edge); }
+}
+
+/* ---- map ---- */
+.map-wrap { position: relative; flex: 1 1 auto; min-height: 30dvh; }
+#map { position: absolute; inset: 0; background: var(--board); }
+.map-badge {
+  position: absolute; z-index: 400;
+  top: calc(env(safe-area-inset-top, 0px) + 10px); left: var(--gutter-l);
+  display: flex; align-items: center; gap: 8px;
+  background: var(--card); color: var(--ink); border-radius: 12px; padding: 5px 12px 5px 6px;
+  font-family: var(--font-display); font-size: 15px; letter-spacing: .04em;
+}
+.map-badge svg { width: 26px; height: 26px; flex: none; }
+.map-fab {
+  position: absolute; z-index: 400; right: var(--gutter-r); bottom: 30px;
+  width: 44px; height: 44px; border-radius: 10px; background: var(--card); color: var(--ink);
+  display: grid; place-items: center;
+}
+.map-fab svg { width: 22px; height: 22px; }
+
+/* ---- board sheet ---- */
+.sheet {
+  flex: 0 1 auto; max-height: 52dvh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  position: relative; z-index: 500; margin-top: -14px;
+  background-color: var(--board);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  border-top: 3px solid var(--edge); border-radius: 18px 18px 0 0;
+}
+.sheet-in {
+  padding-block: 10px 18px;
+  padding-left: var(--gutter-l); padding-right: var(--gutter-r);
+  display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr);
+  max-width: 560px; margin: 0 auto;
+}
+.grip { width: 44px; height: 5px; border-radius: 3px; background: var(--edge); opacity: .35; margin: 0 auto; }
+
+.panel { background: var(--card); border-radius: 14px; padding: 12px 14px 14px; min-width: 0; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.panel-title { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-size: 14px; letter-spacing: .04em; margin: 0; }
+.space { width: 18px; height: 18px; border-radius: 4px; border: 2px solid var(--edge); flex: none; }
+.space.red { background: var(--red); } .space.blue { background: var(--blue); }
+.space.green { background: var(--green); } .space.yellow { background: var(--yellow); }
+
+.loc { font-size: 12px; color: var(--ink-soft); margin-top: 8px; line-height: 1.5; white-space: pre-line; }
+.loc.bad { color: var(--warn); }
+
+.addr { display: flex; gap: 8px; margin: 0; }
+.addr input {
+  flex: 1; min-width: 0; font-size: 16px; padding: 0 12px; height: 46px;
+  border: 2.5px solid var(--edge); border-radius: 10px; background: var(--board);
+}
+.tile-btn {
+  flex: none; height: 46px; min-width: 46px; padding: 0 12px; border-radius: 10px;
+  background: var(--card); font-weight: 700; font-size: 14px; display: grid; place-items: center;
+}
+.tile-btn.primary { background: var(--blue); color: var(--on-blue); }
+.cands { display: grid; gap: 8px; margin-top: 10px; }
+.cand { font-size: 14px; text-align: left; padding: 10px 12px; border-radius: 10px; min-height: 44px; background: var(--card); }
+.cands .msg { font-size: 13px; color: var(--warn); line-height: 1.5; }
+
+.big-row { display: flex; align-items: center; gap: 14px; }
+.big { font-family: var(--font-display); font-size: 44px; line-height: 1; font-variant-numeric: tabular-nums; min-width: 3.4ch; }
+.big small { font-size: 16px; margin-left: 2px; }
+.big .sub { display: block; font-family: var(--font-body); font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
+input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36px; }
+.chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px 4px 6px 2px; margin-top: 10px; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; height: 40px; min-width: 52px; padding: 0 12px; border-radius: 10px; background: var(--card); font-size: 15px; font-weight: 700; }
+.chip[aria-pressed=true], .seg button[aria-pressed=true], .mini-seg button[aria-pressed=true] {
+  background: var(--yellow); color: var(--on-yellow); transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--edge);
+}
+
+.mini-seg { display: flex; gap: 6px; }
+.mini-seg button { height: 32px; padding: 0 12px; border-radius: 8px; background: var(--card); font-size: 13px; font-weight: 700; box-shadow: 2px 2px 0 var(--edge); }
+.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 4px 4px 0; }
+.seg button { height: 48px; border-radius: 10px; background: var(--card); font-size: 15px; font-weight: 700; line-height: 1.15; }
+.seg small { display: block; font-size: 10px; font-weight: 400; opacity: .75; }
+
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; font-weight: 700; min-height: 44px; padding-block: 8px; }
+.toggle + .toggle { border-top: 2px dashed var(--grid); }
+.t-text { min-width: 0; }
+.t-text small { display: block; font-size: 11px; font-weight: 400; color: var(--ink-soft); line-height: 1.5; margin-top: 2px; }
+.toggle.off { opacity: .45; }.toggle input {
+  appearance: none; -webkit-appearance: none; flex: none; margin: 0; cursor: pointer;
+  width: 52px; height: 30px; border-radius: 8px; border: 2.5px solid var(--edge); background: var(--board); position: relative;
+}
+.toggle input::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 21px; height: 21px; border-radius: 5px;
+  background: var(--card); border: 2px solid var(--edge);
+}
+.toggle input:checked { background: var(--green); }
+.toggle input:checked::after { left: 23px; }
+@media (prefers-reduced-motion: no-preference) { .toggle input::after { transition: left .15s; } }
+
+.result { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat { min-width: 0; background: var(--board); border: 2px solid var(--edge); border-radius: 10px; padding: 7px 8px 6px; }
+.stat b { display: block; font-family: var(--font-display); font-weight: 400; font-size: 17px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.stat span { display: block; font-size: 10.5px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note { font-size: 12px; color: var(--ink-soft); line-height: 1.5; margin-top: 10px; }
+.note.bad { color: var(--warn); }
+
+/* ---- dice action bar ---- */
+.actions {
+  flex: none; position: relative; z-index: 600; background: var(--card); border-top: 3px solid var(--edge);
+  padding-top: 12px; padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  padding-left: var(--gutter-l); padding-right: var(--gutter-r);
+}
+.actions-in { display: flex; gap: 10px; max-width: 560px; margin: 0 auto; padding: 0 4px 4px 0; }
+.btn {
+  height: 54px; border-radius: 14px; font-family: var(--font-display); font-weight: 400; font-size: 17px; letter-spacing: .03em;
+  display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; padding: 0 14px;
+  border: 3px solid var(--edge); box-shadow: 4px 4px 0 var(--edge);
+}
+.btn svg { width: 28px; height: 28px; flex: none; }
+.btn-main { flex: 1; background: var(--red); color: var(--on-red); }
+.btn-go { flex: 1; min-width: 0; background: var(--yellow); color: var(--on-yellow); font-size: 15px; white-space: nowrap; padding: 0 8px; }
+.btn-sub { flex: none; background: var(--card); color: var(--ink); font-size: 14px; padding: 0 12px; }
+.btn[disabled] { opacity: .5; }
+
+:is(.btn, .chip, .seg button, .mini-seg button, .tile-btn, .cand, .map-fab, .toggle input, .addr input):focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+
+/* ---- map pieces ---- */
+.wp-icon {
+  background: #3a6fd6; color: #fff; border: 2.5px solid #1c2230; border-radius: 6px;
+  font: 400 13px/21px "Dela Gothic One", sans-serif; text-align: center; box-shadow: 2px 2px 0 #1c2230;
+}
+.wp-icon.home { background: #f6c445; color: #1c2230; border-radius: 999px; font-size: 11px; line-height: 20px; }
+
+/* ---- rolling dice overlay ---- */
+.busy { position: fixed; inset: 0; display: grid; place-items: center; z-index: 1000; background: rgba(10, 14, 20, .45); }
+.busy-card { background: var(--card); color: var(--ink); border-radius: 16px; padding: 18px 22px; display: grid; justify-items: center; gap: 12px; font-weight: 700; max-width: 80vw; text-align: center; }
+.busy-card svg { width: 64px; height: 64px; }
+@media (prefers-reduced-motion: no-preference) {
+  .rolling { animation: tumble .5s ease-in-out infinite alternate; }
+  @keyframes tumble { from { transform: rotate(-18deg) translateY(2px); } to { transform: rotate(18deg) translateY(-4px); } }
+}
+.leaflet-control-attribution { font-size: 10px; }
+</style>
+</head>
+<body>
+<div class="map-wrap">
+  <div id="map" aria-label="ルートの地図"></div>
+  <div class="map-badge piece"><span class="dice-slot" data-face="5"></span>おさんぽダイス</div>
+  <button class="map-fab piece press" id="fitBtn" type="button" aria-label="ルート全体を表示" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+  </button>
+</div>
+
+<section class="sheet" id="sheet">
+  <div class="sheet-in">
+    <div class="grip" aria-hidden="true"></div>
+
+    <div class="panel piece">
+      <div class="panel-head"><h2 class="panel-title"><span class="space red"></span>ふりだし（出発地）</h2></div>
+      <form class="addr" id="addrForm">
+        <input type="search" id="addr" placeholder="住所・駅名で検索" enterkeyhint="search" autocomplete="off">
+        <button class="tile-btn primary piece press" id="addrBtn" type="submit">検索</button>
+        <button class="tile-btn piece press" id="gpsBtn" type="button" aria-label="現在地を使う">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        </button>
+      </form>
+      <div class="cands" id="cands" hidden></div>
+      <div id="loc" class="loc">現在地を取得中…</div>
+    </div>
+
+    <div class="panel piece">
+      <div class="panel-head">
+        <h2 class="panel-title"><span class="space blue"></span>散歩の長さ</h2>
+        <div class="mini-seg" id="modeSeg" role="group" aria-label="長さの決め方">
+          <button class="piece press" type="button" data-mode="time">時間</button>
+          <button class="piece press" type="button" data-mode="dist">距離</button>
+        </div>
+      </div>
+      <div id="timeBox">
+        <div class="big-row">
+          <div class="big" id="timeOut">30<small>分</small></div>
+          <input type="range" id="time" min="10" max="120" step="5" value="30" aria-label="散歩する時間（分）">
+        </div>
+        <div class="chips" id="presets">
+          <button class="chip piece press" type="button" data-min="15">15分</button>
+          <button class="chip piece press" type="button" data-min="30">30分</button>
+          <button class="chip piece press" type="button" data-min="45">45分</button>
+          <button class="chip piece press" type="button" data-min="60">60分</button>
+          <button class="chip piece press" type="button" data-min="90">90分</button>
+          <button class="chip piece press" type="button" data-min="120">120分</button>
+        </div>
+      </div>
+      <div id="distBox" hidden>
+        <div class="big-row">
+          <div class="big" id="distOut">3<small>km</small></div>
+          <input type="range" id="dist" min="1" max="12" step="0.5" value="3" aria-label="散歩する距離（km）">
+        </div>
+        <div class="chips" id="distPresets">
+          <button class="chip piece press" type="button" data-km="1">1km</button>
+          <button class="chip piece press" type="button" data-km="2">2km</button>
+          <button class="chip piece press" type="button" data-km="3">3km</button>
+          <button class="chip piece press" type="button" data-km="5">5km</button>
+          <button class="chip piece press" type="button" data-km="8">8km</button>
+          <button class="chip piece press" type="button" data-km="10">10km</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel piece">
+      <div class="panel-head"><h2 class="panel-title"><span class="space green"></span>歩く速さ</h2></div>
+      <div class="seg" id="speeds">
+        <button class="piece press" type="button" data-speed="65">ゆっくり<small>3.9km/h</small></button>
+        <button class="piece press" type="button" data-speed="80">ふつう<small>4.8km/h</small></button>
+        <button class="piece press" type="button" data-speed="95">早歩き<small>5.7km/h</small></button>
+      </div>
+    </div>
+
+    <div class="panel piece">
+      <div class="panel-head"><h2 class="panel-title"><span class="space yellow"></span>ルートの好み</h2></div>
+      <label class="toggle"><span class="t-text">行きと帰りで同じ道をなるべく通らない<small>散歩に飽きないように、来た道を引き返さないルートを選びます</small></span><input type="checkbox" id="avoidBack"></label>
+      <label class="toggle"><span class="t-text">坂道をなるべく避ける<small>気軽に歩けるように、坂や階段・歩道橋・地下道・跨線橋が少ないルートを選びます</small></span><input type="checkbox" id="avoidHills"></label>
+      <label class="toggle" id="busyRow"><span class="t-text">車通りの多い大通りをなるべく避ける<small id="busyNote">排気ガスや騒音が気にならないように、国道・県道クラスの道が少ないルートを選びます</small></span><input type="checkbox" id="avoidBusy"></label>
+      <label class="toggle"><span class="t-text">夜道モード<small>夜道を一人で歩くのが不安なときに。路地・公園の小道・人家の少ない道を避け、街灯や人通りのありそうな通りを優先します</small></span><input type="checkbox" id="night"></label>    </div>
+
+    <div class="panel piece" id="result" hidden>
+      <div class="panel-head"><h2 class="panel-title"><span class="space red"></span>今回のコース</h2></div>
+      <div class="result">
+        <div class="stat"><b id="rDist">–</b><span>距離</span></div>
+        <div class="stat"><b id="rTime">–</b><span>予想時間</span></div>
+        <div class="stat"><b id="rCrowd">–</b><span>駅前・商店街</span></div>
+        <div class="stat"><b id="rBack">–</b><span>同じ道</span></div>
+        <div class="stat"><b id="rClimb">–</b><span>上りの合計</span></div>
+        <div class="stat"><b id="rSteep">–</b><span>一番急な坂</span></div>
+        <div class="stat"><b id="rStairs">–</b><span>歩道橋・階段</span></div>
+        <div class="stat"><b id="rBusy">–</b><span>大通り</span></div>
+        <div class="stat"><b id="rDark">–</b><span>暗い道</span></div>
+      </div>
+      <div class="note" id="rNote"></div>
+    </div>
+
+    <div class="panel piece">
+      <label class="toggle"><span class="t-text">Googleマップですぐに道案内を始める<small>オン：Googleマップが開くと同時に、音声つきのナビが始まります。<br>オフ：まずルート全体が表示されます。確認してから、自分で「開始」を押してナビを始めます。</small></span><input type="checkbox" id="navNow"></label>
+    </div>
+  </div>
+</section>
+
+<nav class="actions">
+  <div class="actions-in">
+    <button class="btn btn-main press" id="roll" type="button"><span class="dice-slot" data-face="5"></span>サイコロをふる</button>
+    <button class="btn btn-sub press" id="reroll" type="button" hidden><span class="dice-slot" data-face="3"></span>ふりなおす</button>
+    <a class="btn btn-go press" id="go" href="#" target="_blank" rel="noopener" hidden>Googleマップで出発</a>
+  </div>
+</nav>
+
+<div class="busy" id="busy" hidden>
+  <div class="busy-card piece">
+    <span class="rolling" id="busyDice"></span>
+    <div id="busyMsg">サイコロをふっています…</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  // 経路サーバー Valhalla（OpenStreetMap のデータ。FOSSGIS が無料で公開）
+  const VALHALLA = "https://valhalla1.openstreetmap.de/";
+  const ROAD_FACTOR = 1.3;     // 直線距離→道のりのざっくり係数（初期値用）
+  const TOLERANCE = 0.06;      // 目標距離から ±6% 以内なら採用
+  const ROUTE_BUDGET = 18;     // 1回の生成で経路を問い合わせる上限
+  const BACK_LIMIT = 0.01;     // 「同じ道」とみなす区間がこれ（1%）を超えたら不合格（計測の誤差ぶんだけ許す）
+  const BUSY_CLASSES = new Set(["motorway", "trunk", "primary", "secondary"]); // 大通りとみなす道
+
+  // ---------- 設定の保存（この端末のブラウザ内だけ） ----------
+  const settings = (() => {
+    try { return JSON.parse(localStorage.getItem("sanpo.settings") || "{}"); } catch { return {}; }
+  })();
+  function save(k, v) {
+    settings[k] = v;
+    try { localStorage.setItem("sanpo.settings", JSON.stringify(settings)); } catch {}
+  }
+  let minutes = settings.minutes || 30;
+  let km = settings.km || 3;
+  let mode = settings.mode || "time";  // "time" | "dist"
+  let speed = settings.speed || 80;    // m/分
+  let origin = null;                   // {lat, lng}
+  let route = null;                    // 最新の結果
+
+  // ---------- map ----------
+  const map = L.map("map", { zoomControl: false, attributionControl: true }).setView([35.681, 139.767], 14);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: "&copy; OpenStreetMap"
+  }).addTo(map);
+  let originMarker = null;
+  const routeLayer = L.layerGroup().addTo(map);
+  const icon = (txt, home) => home
+    ? L.divIcon({ className: "wp-icon home", html: txt, iconSize: [62, 26], iconAnchor: [31, 13] })
+    : L.divIcon({ className: "wp-icon", html: txt, iconSize: [26, 26], iconAnchor: [13, 13] });
+
+  // ---------- サイコロの絵 ----------
+  const PIPS = { 1: [[2, 2]], 2: [[1, 1], [3, 3]], 3: [[1, 1], [2, 2], [3, 3]], 4: [[1, 1], [3, 1], [1, 3], [3, 3]],
+                 5: [[1, 1], [3, 1], [2, 2], [1, 3], [3, 3]], 6: [[1, 1], [3, 1], [1, 2], [3, 2], [1, 3], [3, 3]] };
+  function diceSVG(n) {
+    const dots = PIPS[n].map(([x, y]) => `<circle cx="${x * 8 + 2}" cy="${y * 8 + 2}" r="3" fill="${n === 1 ? "#e5483b" : "#1c2230"}"/>`).join("");
+    return `<svg viewBox="0 0 36 36" aria-hidden="true"><rect x="2" y="2" width="32" height="32" rx="7" fill="#fff" stroke="#1c2230" stroke-width="3"/>${dots}</svg>`;
+  }
+  document.querySelectorAll(".dice-slot").forEach((el) => { el.innerHTML = diceSVG(+el.dataset.face); el.style.display = "flex"; });
+
+  function setOrigin(lat, lng, label) {
+    origin = { lat, lng };
+    if (originMarker) originMarker.setLatLng([lat, lng]);
+    else originMarker = L.marker([lat, lng], { icon: icon("ふりだし", true) }).addTo(map);
+    $("loc").textContent = label;
+    $("loc").classList.remove("bad");
+    if (!route) map.setView([lat, lng], 15);
+  }
+  map.on("click", (e) => {
+    clearRoute();
+    setOrigin(e.latlng.lat, e.latlng.lng, "地図で選んだ地点から出発");
+  });
+
+  // ---------- 現在地 ----------
+  function locate() {
+    $("loc").textContent = "現在地を取得中…"; $("loc").classList.remove("bad");
+    if (!navigator.geolocation || !window.isSecureContext) { gpsFail({ code: 0 }); return; }
+    const ok = (p) => gpsOk(p.coords.latitude, p.coords.longitude, p.coords.accuracy);
+    // まず GPS で高精度に。取れなければ（屋内・電波が弱いなど）精度を落として取り直す
+    navigator.geolocation.getCurrentPosition(ok, (err) => {
+      if (err.code === 1) { gpsFail(err); return; }   // 許可されていない → 取り直しても無駄
+      $("loc").textContent = "現在地を取得中…（もう少しお待ちください）";
+      navigator.geolocation.getCurrentPosition(ok, gpsFail, { enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 });
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+  }
+  function gpsOk(lat, lng, acc) {
+    clearRoute();
+    setOrigin(lat, lng, `現在地から出発（誤差 約${Math.round(acc || 0)}m）`);
+    map.setView([lat, lng], 15);
+  }
+  function gpsFail(err) {
+    const ua = navigator.userAgent;
+    const ios = /iPhone|iPad|iPod/.test(ua);
+    const reasons = {
+      0: "このページでは位置情報が使えません（https:// で始まるURLで開いてください）。",
+      1: ios
+        ? "位置情報が許可されていません。iPhoneの「設定」→「Chrome」→「位置情報」を「このAppの使用中」にし、「正確な位置情報」をオンにしてください。その後このページを開き直し、右の現在地ボタンを押してください。"
+        : "位置情報が許可されていません。Chromeのアドレスバー左のアイコン →「権限」→「位置情報」を許可にしてください。スマホ本体の位置情報（設定 → 位置情報）がオンかも確認してください。",
+      2: "現在地を特定できませんでした。スマホの位置情報がオンか確認するか、屋外で右の現在地ボタンをもう一度押してください。",
+      3: "現在地の取得に時間がかかりすぎました。屋外で右の現在地ボタンをもう一度押してください。"
+    };
+    const msg = reasons[err && err.code] || reasons[2];
+    const last = settings.lastPlace;
+    if (last && !origin) {
+      setOrigin(last.lat, last.lng, last.name + " から出発（前回の住所）");
+      $("loc").textContent += "\n" + msg;
+    } else {
+      $("loc").textContent = msg + " 住所で検索するか、地図をタップしても出発地を決められます。";
+    }
+    $("loc").classList.add("bad");
+  }
+
+  // ---------- 住所検索 ----------
+  async function getJson(url, body) {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 12000);
+    try {
+      const opt = { signal: ctl.signal };
+      if (body) { opt.method = "POST"; opt.body = JSON.stringify(body); }
+      const r = await fetch(url, opt); if (!r.ok) throw new Error(r.status); return await r.json();
+    } finally { clearTimeout(t); }
+  }
+  // 国土地理院（住所に強い）と OpenStreetMap（駅名・施設名に強い）を同時に引く
+  async function geocode(q) {
+    const [g, n] = await Promise.all([
+      getJson("https://msearch.gsi.go.jp/address-search/AddressSearch?q=" + encodeURIComponent(q))
+        .then((r) => (r || []).map((f) => ({ lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], name: f.properties.title })))
+        .catch(() => []),
+      getJson("https://nominatim.openstreetmap.org/search?format=json&limit=5&accept-language=ja&countrycodes=jp&q=" + encodeURIComponent(q))
+        .then((r) => (r || []).map((f) => {
+          const parts = f.display_name.split(", ").filter((s) => s !== "日本" && !/^\d{3}-\d{4}$/.test(s));
+          const area = parts.slice(1).reverse().slice(0, 3).join(" ");
+          return { lat: +f.lat, lng: +f.lon, name: area ? `${parts[0]}（${area}）` : parts[0] };
+        }))
+        .catch(() => [])
+    ]);
+    const key = q.replace(/\s/g, "");
+    const exact = g.filter((p) => p.name.replace(/\s/g, "").includes(key));
+    const isAddr = (p) => /^(東京都|北海道|京都府|大阪府|.{2,3}県)/.test(p.name);
+    const rest = g.filter((p) => !exact.includes(p));
+    const seen = new Set();
+    return [...exact.filter(isAddr), ...n, ...exact.filter((p) => !isAddr(p)), ...rest].filter((p) => {
+      const k = p.lat.toFixed(4) + "," + p.lng.toFixed(4);
+      if (seen.has(k) || seen.has(p.name)) return false;
+      seen.add(k); seen.add(p.name); return true;
+    }).slice(0, 5);
+  }
+  function pickPlace(p) {
+    $("cands").hidden = true; $("cands").innerHTML = "";
+    clearRoute();
+    setOrigin(p.lat, p.lng, p.name + " から出発");
+    map.setView([p.lat, p.lng], 15);
+    save("lastPlace", p);
+  }
+  $("addrForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = $("addr").value.trim(); if (!q) return;
+    $("addr").blur();
+    $("addrBtn").disabled = true; $("addrBtn").textContent = "…";
+    const list = await geocode(q);
+    $("addrBtn").disabled = false; $("addrBtn").textContent = "検索";
+    const box = $("cands"); box.innerHTML = "";
+    if (!list.length) {
+      box.innerHTML = '<div class="msg">見つかりませんでした。番地を省く・駅名にするなど、言い方を変えてみてください。</div>';
+      box.hidden = false; return;
+    }
+    if (list.length === 1) { pickPlace(list[0]); return; }
+    list.forEach((p) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "cand piece press"; b.textContent = p.name;
+      b.addEventListener("click", () => pickPlace(p));
+      box.appendChild(b);
+    });
+    box.hidden = false;
+  });
+  $("gpsBtn").addEventListener("click", locate);
+
+  // ---------- geometry ----------
+  const R = 6371000;
+  function offset(p, bearingDeg, dist) {
+    const b = bearingDeg * Math.PI / 180, d = dist / R;
+    const la1 = p.lat * Math.PI / 180, lo1 = p.lng * Math.PI / 180;
+    const la2 = Math.asin(Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(b));
+    const lo2 = lo1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la1), Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+    return { lat: la2 * 180 / Math.PI, lng: lo2 * 180 / Math.PI };
+  }
+  function haversine(a, b) {
+    const t = (x) => x * Math.PI / 180;
+    const dLa = t(b.lat - a.lat), dLo = t(b.lng - a.lng);
+    const h = Math.sin(dLa / 2) ** 2 + Math.cos(t(a.lat)) * Math.cos(t(b.lat)) * Math.sin(dLo / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  function randomShape(avoid = []) {
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    // 前に出したコースと同じ方角はなるべく選ばない（ふりなおしで違う方へ行く）
+    const gap = (a, b) => { const d = Math.abs(a - b) % 360; return Math.min(d, 360 - d); };
+    let heading = rnd(0, 360);
+    for (let t = 0; t < 30 && avoid.some((h, i) => gap(h, heading) < (i === avoid.length - 1 ? 90 : 55)); t++) heading = rnd(0, 360);
+    return {
+      heading,
+      dir: Math.random() < .5 ? 1 : -1,
+      angJ: [rnd(-25, 25), rnd(-25, 25), rnd(-25, 25)],
+      radJ: [rnd(.8, 1.2), rnd(.8, 1.2), rnd(.8, 1.2)]
+    };
+  }
+  // 出発地を通る円の上に経由地を3つ置く（周回ルート。スマホのGoogleマップは経由地3つまで）
+  function waypointsFor(shape, r) {
+    const center = offset(origin, shape.heading, r);
+    const back = (shape.heading + 180) % 360;
+    return [1, 2, 3].map((i) => offset(center, back + shape.dir * (90 * i + shape.angJ[i - 1]), r * shape.radJ[i - 1]));
+  }
+  function straightLength(wps) {
+    const pts = [origin, ...wps, origin];
+    let s = 0; for (let i = 1; i < pts.length; i++) s += haversine(pts[i - 1], pts[i]);
+    return s;
+  }
+  // Valhalla の encoded polyline（精度 1e6）を [lat, lng] の配列に戻す
+  function decode6(str) {
+    let i = 0, lat = 0, lng = 0; const out = [];
+    while (i < str.length) {
+      for (const k of [0, 1]) {
+        let shift = 0, result = 0, b;
+        do { b = str.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+        const d = (result & 1) ? ~(result >> 1) : (result >> 1);
+        if (k === 0) lat += d; else lng += d;
+      }
+      out.push([lat / 1e6, lng / 1e6]);
+    }
+    return out;
+  }
+  function encode6(pts) {
+    let out = "", pLat = 0, pLng = 0;
+    const enc = (v) => { v = v < 0 ? ~(v << 1) : (v << 1); let s = ""; while (v >= 0x20) { s += String.fromCharCode((0x20 | (v & 0x1f)) + 63); v >>= 5; } return s + String.fromCharCode(v + 63); };
+    for (const [la, lo] of pts) {
+      const a = Math.round(la * 1e6), b = Math.round(lo * 1e6);
+      out += enc(a - pLat) + enc(b - pLng); pLat = a; pLng = b;
+    }
+    return out;
+  }
+
+  // 普通の徒歩ルート（Googleマップの道選びに近い）を取る
+  async function fetchRoute(wps) {
+    // Googleマップと同じく、経由地でUターンしてよい条件で道を引く（Googleで実際に出る道に近づける）
+    const locations = [origin, ...wps, origin].map((p) => ({ lat: +p.lat.toFixed(6), lon: +p.lng.toFixed(6), type: "break" }));
+    const j = await getJson(VALHALLA + "route?json=" + encodeURIComponent(JSON.stringify({
+      locations, costing: "pedestrian", directions_type: "none"
+    })));
+    if (!j.trip || !j.trip.legs) throw new Error("no route");
+    const legs = j.trip.legs.map((l) => decode6(l.shape));
+    const line = [].concat(...legs);
+    return {
+      distance: j.trip.summary.length * 1000,
+      line,
+      // 道に吸着した後の経由地 = 2〜4本目の区間の始点
+      snapped: legs.slice(1, 4).map((l) => ({ lat: l[0][0], lng: l[0][1] })),
+      legs
+    };
+  }
+
+  // 線の始まりから step(m) ごとの点を、maxLen(m) まで取り出す
+  function samplePath(pts, step, maxLen) {
+    const out = [{ lat: pts[0][0], lng: pts[0][1] }];
+    let want = step;
+    for (let i = 1, s = 0; i < pts.length && want <= maxLen; i++) {
+      const a = { lat: pts[i - 1][0], lng: pts[i - 1][1] }, b = { lat: pts[i][0], lng: pts[i][1] };
+      const seg = haversine(a, b);
+      while (want <= s + seg && want <= maxLen) {
+        const t = seg ? (want - s) / seg : 0;
+        out.push({ lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t });
+        want += step;
+      }
+      s += seg;
+    }
+    return out;
+  }
+  // 経由地で「行って戻る」寄り道になっていないか調べる。
+  // 経由地から来た道と次の道を同時にたどり、重なっている間は寄り道。重なりが終わる点（交差点）を返す
+  function findSpurs(res) {
+    const spurs = [];
+    for (let k = 0; k < 3; k++) {
+      const inLeg = res.legs[k], outLeg = res.legs[k + 1];
+      if (!inLeg || !outLeg || inLeg.length < 2 || outLeg.length < 2) continue;
+      const A = samplePath(inLeg.slice().reverse(), 5, 400), B = samplePath(outLeg, 5, 400);
+      let j = 0;
+      while (j < A.length && j < B.length && haversine(A[j], B[j]) < 12) j++;
+      const spurLen = (j - 1) * 5;
+      if (spurLen >= 15) spurs.push({ k, junction: A[Math.max(0, j - 1)], len: spurLen });
+    }
+    return spurs;
+  }
+  // 寄り道があれば経由地を交差点へ移してルートを取り直す（最大2回）
+  async function fetchRouteNoSpur(wps, spend) {
+    let res = await fetchRoute(wps);
+    for (let n = 0; n < 2; n++) {
+      const spurs = findSpurs(res);
+      if (!spurs.length || !spend()) break;
+      wps = wps.slice();
+      spurs.forEach((s) => { wps[s.k] = s.junction; });
+      res = await fetchRoute(wps);
+    }
+    return { res, wps };
+  }
+
+  // ---------- 国土地理院の標高タイル ----------
+  // 画像の色に標高が入っている（RGB → 0.01m 単位）。5mメッシュ（dem5a）がなければ10mメッシュ（dem10b）
+  const DEM_SOURCES = [{ name: "dem5a_png", z: 15 }, { name: "dem10b_png", z: 14 }];
+  const demCache = new Map();
+  function demTile(src, z, x, y) {
+    const key = `${src}/${z}/${x}/${y}`;
+    if (!demCache.has(key)) {
+      demCache.set(key, (async () => {
+        const r = await fetch(`https://cyberjapandata.gsi.go.jp/xyz/${src}/${z}/${x}/${y}.png`);
+        if (!r.ok) return null;                     // 海など、データのない場所
+        const bmp = await createImageBitmap(await r.blob());
+        const c = document.createElement("canvas"); c.width = c.height = 256;
+        const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(bmp, 0, 0);
+        return g.getImageData(0, 0, 256, 256).data;
+      })().catch(() => null));
+    }
+    return demCache.get(key);
+  }
+  async function groundHeight(lat, lng) {
+    for (const { name, z } of DEM_SOURCES) {
+      const n = 2 ** z, fx = (lng + 180) / 360 * n;
+      const fy = (1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n;
+      const x = Math.floor(fx), y = Math.floor(fy);
+      const data = await demTile(name, z, x, y);
+      if (!data) continue;
+      const px = Math.min(255, Math.floor((fx - x) * 256)), py = Math.min(255, Math.floor((fy - y) * 256));
+      const i = (py * 256 + px) * 4;
+      const v = data[i] * 65536 + data[i + 1] * 256 + data[i + 2];
+      if (v === 8388608 || data[i + 3] === 0) continue; // 「データなし」
+      return (v < 8388608 ? v : v - 16777216) * 0.01;
+    }
+    return null;
+  }
+  // ルートに沿って 30m ごとの [距離, 標高] を作る
+  async function gsiProfile(line) {
+    if (!line || line.length < 2) return null;
+    const samples = []; let s = 0, next = 0;
+    for (let i = 1; i < line.length; i++) {
+      const a = { lat: line[i - 1][0], lng: line[i - 1][1] }, b = { lat: line[i][0], lng: line[i][1] };
+      const seg = haversine(a, b);
+      while (next <= s + seg) {
+        const t = seg ? (next - s) / seg : 0;
+        samples.push([next, a.lat + (b.lat - a.lat) * t, a.lng + (b.lng - a.lng) * t]);
+        next += 30;
+      }
+      s += seg;
+    }
+    const out = [];
+    for (const [d, la, lo] of samples) { const h = await groundHeight(la, lo); if (h != null) out.push([d, h]); }
+    return out.length >= samples.length * 0.7 ? out : null;  // 3割以上取れなければ使わない
+  }
+
+  // ルートの坂と大通りを調べる
+  async function inspect(res) {
+    // 長いルートは間引いて送る（精度は十分）
+    const step = Math.max(1, Math.floor(res.line.length / 400));
+    const pts = res.line.filter((_, i) => i % step === 0 || i === res.line.length - 1);
+    const poly = encode6(pts);
+    // 混雑で断られたときに備えて、失敗したら少し待って1回だけ取り直す
+    const retry = async (fn) => { try { return await fn(); } catch { await new Promise((r) => setTimeout(r, 1200)); return fn().catch(() => null); } };
+    const ta = await retry(() => getJson(VALHALLA + "trace_attributes", {
+      encoded_polyline: poly, shape_match: "map_snap", costing: "pedestrian",
+      filters: { attributes: ["edge.road_class", "edge.length", "edge.use", "edge.density", "edge.bridge", "edge.tunnel",
+        "edge.begin_shape_index", "edge.end_shape_index", "shape"], action: "include" }
+    }));
+    // 標高：国土地理院（建物を除いた地面の高さ）→ 取れなければ Valhalla（建物や木の高さが混ざることがある）
+    let profile = await gsiProfile(res.line).catch(() => null);
+    if (!profile) {
+      const h = await retry(() => getJson(VALHALLA + "height", { encoded_polyline: poly, range: true, resample_distance: 30 }));
+      profile = h && h.range_height ? h.range_height.filter((x) => x[1] != null && x[1] > -1000) : null;
+    }
+    const out = { busy: null, climb: null, steep: null, dark: null, lively: null, steps: null };
+    if (ta && ta.edges) {
+      // 歩道橋・地下道・跨線橋・階段（標高データには出ない上り下り）を、続いている区間ごとに1か所と数える
+      let steps = 0, inEvent = false;
+      ta.edges.forEach((e) => {
+        const walkway = STEP_USES.has(e.use);
+        const isStep = e.use === "steps" || e.use === "elevator" || (walkway && (e.bridge || e.tunnel));
+        if (isStep && !inEvent) steps++;
+        inEvent = isStep;
+      });
+      out.steps = steps;
+      // Googleマップに渡す経由地の候補：交差点から離れた「道の途中」の点（どの道か迷わせない）
+      if (ta.shape) {
+        const sh = decode6(ta.shape);
+        out.mids = [];
+        ta.edges.forEach((e) => {
+          const b = e.begin_shape_index, en = e.end_shape_index;
+          if (b == null || en == null || en <= b || !MID_USES.has(e.use)) return;
+          const seg = sh.slice(b, en + 1);
+          let len = 0; for (let i = 1; i < seg.length; i++) len += haversine({ lat: seg[i - 1][0], lng: seg[i - 1][1] }, { lat: seg[i][0], lng: seg[i][1] });
+          if (len < 50) return;   // 交差点から 25m 以上離れた点が取れる道だけ
+          const p = samplePath(seg, len / 2, len / 2).pop();
+          out.mids.push({ lat: p.lat, lng: p.lng, len, idx: (b + en) / 2 });
+        });
+        out.matched = sh;
+      }
+      let all = 0, busyLen = 0, darkLen = 0, livelyLen = 0, quietLen = 0;
+      ta.edges.forEach((e) => {
+        const len = e.length || 0; all += len;
+        if (BUSY_CLASSES.has(e.road_class)) busyLen += len;
+        darkLen += len * darkWeight(e);
+        if (LIVELY_CLASSES.has(e.road_class) || e.use === "pedestrian") livelyLen += len;
+        // 大通りを除いた「人の気配がある道」：生活道路の幹線（tertiary）や、家が建ち並ぶ地域の普通の車道
+        if (e.road_class === "tertiary" || e.use === "pedestrian" ||
+            (e.use === "road" && !BUSY_CLASSES.has(e.road_class) && e.density != null && e.density >= 10)) quietLen += len;
+      });
+      // 歩行者天国・商店街の歩行者専用道（use: pedestrian）
+      const pedLen = ta.edges.reduce((s, e) => s + (e.use === "pedestrian" ? (e.length || 0) : 0), 0);
+      if (all > 0) {
+        out.busy = busyLen / all; out.dark = darkLen / all; out.lively = livelyLen / all;
+        out.livelyQuiet = quietLen / all; out.pedestrian = pedLen / all;
+      }
+    }
+    if (profile && profile.length > 2) {
+      const raw = profile;
+      // 標高データは建物や木の影響で数m揺れるので、前後5点（約150m）でならしてから数える
+      const rh = raw.map(([d], i) => {
+        const win = raw.slice(Math.max(0, i - 2), i + 3);
+        return [d, win.reduce((s, x) => s + x[1], 0) / win.length];
+      });
+      let climb = 0, base = rh[0][1], steep = 0;
+      rh.forEach(([, z]) => {
+        if (z - base >= 3) { climb += z - base; base = z; }
+        else if (base - z >= 3) base = z;
+      });
+      // 100m ごとの高低差で一番急な坂（%）
+      for (let i = 0, j = 0; i < rh.length; i++) {
+        while (j < rh.length && rh[j][0] - rh[i][0] < 100) j++;
+        if (j >= rh.length) break;
+        steep = Math.max(steep, Math.abs(rh[j][1] - rh[i][1]) / (rh[j][0] - rh[i][0]) * 100);
+      }
+      out.climb = climb; out.steep = steep;
+    }
+    return out;
+  }
+
+  // 歩行者専用の道。これが橋（歩道橋・跨線橋）やトンネル（地下道）なら上り下りがある。
+  // 車道の橋（川を渡る橋など）はほぼ平らなので数えない
+  const STEP_USES = new Set(["footway", "path", "pedestrian", "steps", "elevator", "cycleway"]);
+  const STEP_CLIMB = 6; // 1か所あたりの上り（m）の目安。歩道橋の高さはおよそ5〜6m
+  // Googleマップの経由地を置いてよい道（Googleの地図にも確実にある普通の道。小道や公園の中は避ける）
+  const MID_USES = new Set(["road", "living_street", "sidewalk"]);
+
+  // 経由地を「道の途中」へ移す。ルートの線の上の点なので、ルート自体は変わらない
+  function handoffPoints(c) {
+    if (!c.mids || !c.mids.length || !c.matched) return c.snapped;
+    const sh = c.matched;
+    const near = (p) => { let bi = 0, bd = Infinity; sh.forEach(([la, lo], i) => { const d = haversine(p, { lat: la, lng: lo }); if (d < bd) { bd = d; bi = i; } }); return bi; };
+    const pos = c.snapped.map(near);
+    const bounds = [0, ...pos, sh.length - 1];
+    // 経由地ごとに候補を良い順に並べる（近くて、長い道ほどよい）。最後に元の点も入れておく
+    return c.snapped.map((p, k) => {
+      const lo = bounds[k], hi = bounds[k + 2];
+      const list = c.mids
+        .filter((m) => m.idx > lo && m.idx < hi && haversine(p, m) <= 120)   // 前後の経由地を追い越さない。離れすぎると近道されて短くなる
+        .map((m) => ({ lat: m.lat, lng: m.lng, s: haversine(p, m) - Math.min(m.len, 200) * 0.1 }))
+        .sort((a, b) => a.s - b.s).slice(0, 3)
+        .map(({ lat, lng }) => ({ lat, lng }));
+      return [...list, p];
+    });
+  }
+
+  // Googleマップは経由地でUターンしてもよい道案内をする。同じ条件で道を引き直して、
+  // 経由地で「行って戻る」折り返しが出ない置き方を探す（出たらその経由地だけ別の候補に替える）
+  async function googleSafe(c, adult) {
+    const lists = handoffPoints(c);
+    const pick = [0, 0, 0], usedJunction = [false, false, false];
+    let best = null;
+    for (let round = 0; round < 6; round++) {
+      const wps = lists.map((l, k) => l[Math.min(pick[k], l.length - 1)]);
+      let res;
+      try { res = await fetchRoute(wps); } catch { break; }
+      const spurs = findSpurs(res);
+      const spurLen = spurs.reduce((s, x) => s + x.len, 0);
+      const back = backtrackRatio(res.line);
+      const err = Math.abs(res.distance - c.target) / c.target;
+      const adultNg = passesNear(res.line, adult, ADULT_DIST);   // 風俗街は絶対に通らない
+      const ok = !adultNg && (!avoidBack() || back <= Math.max(BACK_LIMIT, c.back || 0) + 0.005) && err <= TOLERANCE * 1.5;
+      const score = spurLen + (adultNg ? 5000 : ok ? 0 : 1000);
+      if (!best || score < best.score) best = { score, res, wps, err };
+      if (!spurs.length && ok) break;
+      // 近道されて短くなった・同じ道が増えた → 元の経由地（調べたルートどおり）に戻す
+      if (!spurs.length && !ok) { if (lists.every((l, k) => l[pick[k]] === c.snapped[k])) break; lists.forEach((l, k) => { pick[k] = l.indexOf(c.snapped[k]); }); continue; }
+      let moved = false;
+      spurs.forEach((x) => {
+        if (pick[x.k] < lists[x.k].length - 1) { pick[x.k]++; moved = true; }
+        // 候補を使い切ったら、折り返しが始まる交差点そのものを経由地にする
+        else if (!usedJunction[x.k]) { usedJunction[x.k] = true; lists[x.k].push(x.junction); pick[x.k] = lists[x.k].length - 1; moved = true; }
+      });
+      if (!moved) break;
+    }
+    return best;   // 条件を満たさなくても、折り返しが一番少ない置き方を返す（Googleマップで実際に歩く道に近い）
+  }
+
+  // ---------- ふりなおしで同じようなコースにならないように ----------
+  let history = { key: "", lines: [], headings: [] };
+  function historyFor() {
+    const key = origin.lat.toFixed(4) + "," + origin.lng.toFixed(4) + "," + Math.round(targetMeters() / 250);
+    if (history.key !== key) history = { key, lines: [], headings: [] };
+    return history;
+  }
+  // 前に出したコースと重なる割合（出発地のまわり 200m は除く）
+  function overlapRatio(line, prev) {
+    if (!line || !prev.length) return 0;
+    const lat0 = line[0][0] * Math.PI / 180, kx = Math.cos(lat0) * 111320, ky = 110540, CELL = 25;
+    const grid = new Set();
+    prev.forEach((l) => samplePath(l, 10, Infinity).forEach((p) => grid.add(Math.floor(p.lng * kx / CELL) + "," + Math.floor(p.lat * ky / CELL))));
+    const start = { lat: line[0][0], lng: line[0][1] };
+    const pts = samplePath(line, 20, Infinity).filter((p) => haversine(p, start) > 200);
+    if (!pts.length) return 0;
+    let hit = 0;
+    pts.forEach((p) => {
+      const cx = Math.floor(p.lng * kx / CELL), cy = Math.floor(p.lat * ky / CELL);
+      outer: for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) if (grid.has((cx + dx) + "," + (cy + dy))) { hit++; break outer; }
+    });
+    return hit / pts.length;
+  }
+
+  // 夜に暗くなりやすい道：路地・公園や緑地の小道・階段・駐車場の通路・人家の少ない地域の道
+  const DARK_USES = new Set(["alley", "path", "track", "steps", "driveway", "parking_aisle", "cycleway", "mountain_bike", "bridleway"]);
+  // 街灯や人通りが期待できる道：商店や交通のある通り
+  const LIVELY_CLASSES = new Set(["trunk", "primary", "secondary", "tertiary"]);
+  // 暗くなりやすさ（0〜1）。日本の地図データでは駅前や大通り沿いの歩道も footway なので半分だけ数える
+  function darkWeight(e) {
+    if (e.density != null && e.density <= 5) return 1;  // 建物の少ない地域
+    if (DARK_USES.has(e.use)) return 1;
+    if (e.use === "footway") return e.density != null && e.density < 10 ? 1 : 0.5;
+    return 0;                                             // 車道・歩道（sidewalk）・横断歩道・歩行者天国
+  }
+
+  // 同じ道を2回通る割合（ルートの線を 10m ごとに区切り、離れた場面で同じ場所を通る点を数える）
+  function backtrackRatio(line) {
+    if (!line || line.length < 2) return null;
+    const lat0 = line[0][0] * Math.PI / 180, kx = Math.cos(lat0) * 111320, ky = 110540;
+    const xy = line.map(([la, lo]) => [lo * kx, la * ky]);
+    const pts = []; let s = 0, carry = 0;
+    for (let i = 1; i < xy.length; i++) {
+      const [x1, y1] = xy[i - 1], [x2, y2] = xy[i];
+      const seg = Math.hypot(x2 - x1, y2 - y1);
+      let t = carry;
+      while (t <= seg) { pts.push({ x: x1 + (x2 - x1) * t / (seg || 1), y: y1 + (y2 - y1) * t / (seg || 1), s: s + t }); t += 10; }
+      carry = t - seg; s += seg;
+    }
+    const CELL = 15, grid = new Map(), key = (cx, cy) => cx + "," + cy;
+    pts.forEach((p, i) => { const k = key(Math.floor(p.x / CELL), Math.floor(p.y / CELL)); (grid.get(k) || grid.set(k, []).get(k)).push(i); });
+    let dup = 0;
+    const start = pts[0];
+    pts.forEach((p) => {
+      // 出発地のすぐそば（100m 以内）は、家の前の道などで避けようがないので数えない
+      if (Math.hypot(p.x - start.x, p.y - start.y) < 100) return;
+      const cx = Math.floor(p.x / CELL), cy = Math.floor(p.y / CELL);
+      outer: for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        for (const j of grid.get(key(cx + dx, cy + dy)) || []) {
+          const q = pts[j];
+          // 道のりで 30m 以上離れた場面なのに、同じ場所（12m 以内）を通る → 同じ道（短い往復も含む）
+          if (Math.abs(q.s - p.s) > 30 && Math.hypot(q.x - p.x, q.y - p.y) < 12) { dup++; break outer; }
+        }
+      }
+    });
+    return pts.length ? dup / pts.length : 0;
+  }
+
+  // OpenStreetMap の検索（Nominatim）は「1秒に1回まで」の決まりなので、続けて使うときは間を空ける
+  let lastNominatim = 0;
+  async function nominatimTurn() {
+    const wait = lastNominatim + 1100 - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastNominatim = Date.now();
+  }
+
+  // ---------- 風俗街（基本原則として通らない） ----------
+  // 地図データの風俗店（amenity=brothel）のうち、150m 以内に仲間が2軒以上ある＝3軒以上集まった場所を風俗街とみなす。
+  // ぽつんと1軒だけの店は対象外（周り一帯が通れなくなるのを防ぐ）
+  const adultCache = new Map();
+  async function fetchAdultDistricts(center, radius) {
+    const dLat = radius / 110540, dLng = radius / (111320 * Math.cos(center.lat * Math.PI / 180));
+    const key = [center.lng - dLng, center.lat + dLat, center.lng + dLng, center.lat - dLat].map((v) => v.toFixed(3)).join(",");
+    if (adultCache.has(key)) return adultCache.get(key);
+    try {
+      await nominatimTurn();
+      const j = await getJson("https://nominatim.openstreetmap.org/search?format=json&limit=50&bounded=1&viewbox=" + key + "&amenity=brothel");
+      const venues = (Array.isArray(j) ? j : []).map((e) => ({ lat: +e.lat, lng: +e.lon }));
+      const district = venues.filter((v) => venues.filter((w) => w !== v && haversine(v, w) < 150).length >= 2);
+      adultCache.set(key, district);
+      return district;
+    } catch { return null; }
+  }
+  // ルートが風俗街の店から dist(m) 以内を通るか。
+  // 出発地そのものが風俗街の中にあるときは避けようがないので、出発地のまわり 150m だけは数えない
+  function passesNear(line, pts, dist) {
+    if (!line || !pts || !pts.length) return false;
+    const start = { lat: line[0][0], lng: line[0][1] };
+    const startInside = pts.some((s) => haversine(start, s) < dist);
+    for (let i = 0; i < line.length; i++) {
+      const p = { lat: line[i][0], lng: line[i][1] };
+      if (startInside && haversine(p, start) < 150) continue;
+      if (pts.some((s) => haversine(p, s) < dist)) return true;
+    }
+    return false;
+  }
+  const ADULT_DIST = 80;
+
+  // ---------- 駅（人通りが多い場所） ----------
+  const stationCache = new Map();
+  async function fetchStations(center, radius) {
+    const dLat = radius / 110540, dLng = radius / (111320 * Math.cos(center.lat * Math.PI / 180));
+    const box = [center.lng - dLng, center.lat + dLat, center.lng + dLng, center.lat - dLat].map((v) => v.toFixed(3));
+    const key = box.join(",");
+    if (stationCache.has(key)) return stationCache.get(key);
+    try {
+      await nominatimTurn();
+      const j = await getJson("https://nominatim.openstreetmap.org/search?format=json&limit=40&bounded=1&viewbox=" + key + "&q=" + encodeURIComponent("駅"));
+      const list = (j || []).filter((e) => e.class === "railway" && (e.type === "station" || e.type === "halt") || (e.class === "public_transport" && e.type === "station"))
+        .map((e) => ({ lat: +e.lat, lng: +e.lon }));
+      stationCache.set(key, list);
+      return list;
+    } catch { return null; }
+  }
+  // ルートのうち、駅から 150m 以内を歩く割合（駅前・駅の通り抜け）
+  function nearStationRatio(line, stations) {
+    if (!line || !stations) return null;
+    if (!stations.length) return 0;
+    let near = 0, all = 0;
+    for (let i = 0; i < line.length; i += 2) {
+      const p = { lat: line[i][0], lng: line[i][1] }; all++;
+      if (stations.some((s) => haversine(p, s) < 150)) near++;
+    }
+    return all ? near / all : 0;
+  }
+
+  // 好みに合わないほど大きくなる点数
+  function penalty(c) {
+    let p = 0;
+    if (avoidBack() && c.back != null) p += c.back * 120;                        // 同じ道 10% → 12点
+    if (avoidBusy() && c.busy != null) p += c.busy * 150;                        // 大通り 10% → 15点（夜道モードの暗い道と同じ重み）
+    if (avoidHills()) {
+      const climb = (c.climb || 0) + (c.steps || 0) * STEP_CLIMB;  // 歩道橋・階段の上りも足す
+      p += climb / (c.distance / 1000) * 1.5                        // 1kmあたり 10m 上る → 15点
+         + Math.max(0, (c.steep || 0) - 5) * 3                      // 5% を超える急坂
+         + (c.steps || 0) * 30;                                     // 階段・歩道橋は1か所でも強く避ける
+    }
+    if (avoidCrowd() && c.crowd != null) p += c.crowd * 200;                     // 駅前・商店街 10% → 20点
+    if (nightMode() && c.dark != null) {
+      // 暗い道 10% → 15点。人の気配がある道は少し加点（大通りを避けるときは、大通り以外で人の気配がある道を加点）
+      const lively = avoidBusy() ? (c.livelyQuiet || 0) : (c.lively || 0);
+      p += c.dark * 150 - lively * 30;
+    }
+    return p;
+  }
+  const avoidBack = () => $("avoidBack").checked;
+  // 人通りの多い場所（駅前・商店街）は、夜道モードでない限りいつも避ける
+  const avoidCrowd = () => !nightMode();
+  const avoidHills = () => $("avoidHills").checked;
+  const nightMode = () => $("night").checked;
+  const avoidBusy = () => $("avoidBusy").checked;  // 排気ガス・騒音対策なので、夜道モードとは関係なく使える
+  const targetMeters = () => mode === "dist" ? km * 1000 : minutes * speed;
+
+  // ---------- generate ----------
+  async function generate() {
+    if (!origin) {
+      $("loc").textContent = "出発地がまだ決まっていません。住所で検索するか、地図をタップしてください";
+      $("loc").classList.add("bad"); $("sheet").scrollTo({ top: 0, behavior: "smooth" }); return;
+    }
+    const target = targetMeters();
+    const r0 = target / (5.66 * ROAD_FACTOR);
+    const any = avoidBack() || avoidCrowd() || avoidHills() || avoidBusy() || nightMode();
+    const want = any ? 4 : 1;   // 好みがあるときは4候補から選ぶ
+    const cands = [];
+    let fallback = null, backFallback = null, adultFallback = null, routed = true, lastErr = null;
+    let budget = avoidBack() ? ROUTE_BUDGET + 8 : ROUTE_BUDGET;  // 同じ道を通らない条件は厳しいので多めに探す
+
+    const hist = historyFor();
+    busy(true, "サイコロをふっています…");
+    // 人通りを避けるときは、周りの駅の位置を先に調べておく
+    const stations = avoidCrowd() ? await fetchStations(origin, r0 * 2.6) : null;
+    // 風俗街の場所（どのモードでも通らない）
+    const adult = await fetchAdultDistricts(origin, r0 * 2.6);
+    try {
+      while (cands.length < want && budget > 0) {
+        let shape = randomShape(hist.headings.slice(-3)), r = r0;
+        for (let k = 0; k < 4 && budget > 0; k++) {
+          budget--;
+          const wps = waypointsFor(shape, r);
+          let res;
+          try {
+            // 経由地での「行って戻る」寄り道は、経由地を交差点へ移して取り除く
+            const got = await fetchRouteNoSpur(wps, () => budget-- > 0);
+            res = got.res; wps.splice(0, wps.length, ...got.wps);
+          } catch (e) { lastErr = e; break; }  // 海や山奥など → 別の形で
+          // 道のない場所から遠くへ吸い寄せられた・極端に遠回り → この形はやめる
+          const drift = Math.max(...res.snapped.map((p, i) => haversine(p, wps[i])));
+          const detour = res.distance / Math.max(1, straightLength(res.snapped));
+          if (drift > r * 0.35 || detour > 2.2) break;
+          const err = Math.abs(res.distance - target) / target;
+          // 風俗街の近くを通るルートは候補にしない（基本原則）。形を変えて作り直す
+          if (passesNear(res.line, adult, ADULT_DIST)) {
+            if (!adultFallback || err < adultFallback.err) adultFallback = { ...res, err };
+            break;
+          }
+          if (!fallback || err < fallback.err) fallback = { ...res, err };
+          if (err <= TOLERANCE) {
+            res.heading = shape.heading;
+            // 「同じ道を通らない」がオンなら、引き返す区間のあるルートは候補にしない（別の形で作り直す）
+            const back = backtrackRatio(res.line);
+            if (avoidBack() && back > BACK_LIMIT) {
+              if (!backFallback || back < backFallback.back) backFallback = { ...res, err, back };
+              break;
+            }
+            cands.push({ ...res, err }); break;
+          }
+          r *= Math.pow(target / res.distance, 0.9);
+        }
+        if (want > 1) busyMsg(`コースの候補を探しています（${cands.length}/${want}）`);
+      }
+      // 条件を満たすルートが1つもなければ、一番ましなものを使う（画面で知らせる）
+      if (!cands.length && backFallback) cands.push(backFallback);
+      if (!cands.length && fallback) cands.push(fallback);
+      if (!cands.length && adultFallback) cands.push(adultFallback);
+      if (!cands.length) throw new Error("no candidate");
+
+      busyMsg("道の様子を調べています…");
+      // 無料サーバーに負担をかけないよう、候補は1つずつ順番に調べる
+      for (const c of cands) {
+        Object.assign(c, await inspect(c), { back: backtrackRatio(c.line) });
+        const near = stations ? nearStationRatio(c.line, stations) : null;
+        c.crowd = near == null && c.pedestrian == null ? null : Math.min(1, (near || 0) + (c.pedestrian || 0));
+      }
+      // 前に出したコースと重なるほど点を下げる（ふりなおしで毎回ちがう道を歩けるように）
+      cands.forEach((c) => { c.overlap = overlapRatio(c.line, hist.lines); });
+      const score = (c) => penalty(c) + c.err * 50 + c.overlap * 200;
+      cands.sort((a, b) => score(a) - score(b));
+      let best = cands[0];
+      // Googleマップに渡したときに経由地で折り返しが出ないよう、経由地の置き方を確かめる
+      busyMsg("Googleマップ用に経由地を整えています…");
+      let safe = null;
+      for (const c of cands.slice(0, 2)) {   // 1番目でうまくいかなければ2番目の候補で
+        const s = await googleSafe({ ...c, target }, adult);
+        if (s && s.score < 5000 && (!safe || s.score < safe.score)) { safe = s; best = c; }
+        if (safe && safe.score === 0) break;
+      }
+      if (safe) {
+        const moved = Math.abs(safe.res.distance - best.distance) > best.distance * 0.01;
+        const ov = best.heading;
+        best = { ...best, ...safe.res, err: safe.err, snapped: safe.wps, heading: ov };
+        if (moved) {   // 道が少し変わったら、坂や大通りを調べ直す
+          Object.assign(best, await inspect(best), { back: backtrackRatio(best.line) });
+          const near = stations ? nearStationRatio(best.line, stations) : null;
+          best.crowd = near == null && best.pedestrian == null ? null : Math.min(1, (near || 0) + (best.pedestrian || 0));
+        }
+      }
+      hist.lines.push(best.line); hist.lines = hist.lines.slice(-3);
+      if (best.heading != null) hist.headings.push(best.heading);
+      route = { ...best, routed, target, compared: cands.length };
+    } catch (e) {
+      routed = false;
+      const shape = randomShape();
+      const wps = waypointsFor(shape, r0);
+      const wps2 = waypointsFor(shape, r0 * target / (straightLength(wps) * ROAD_FACTOR));
+      route = { snapped: wps2, distance: straightLength(wps2) * ROAD_FACTOR, line: null, routed, target, busy: null, climb: null, steep: null, dark: null, back: null, steps: null };
+    } finally { busy(false); }
+    draw();
+  }
+
+  function clearRoute() {
+    route = null; routeLayer.clearLayers();
+    $("result").hidden = true;
+    $("roll").hidden = false; $("reroll").hidden = true; $("go").hidden = true; $("fitBtn").hidden = true;
+  }
+
+  function fitRoute() {
+    if (!route) return;
+    const b = L.latLngBounds([[origin.lat, origin.lng], ...route.snapped.map((p) => [p.lat, p.lng])]);
+    if (route.line) b.extend(L.latLngBounds(route.line));
+    map.fitBounds(b, { padding: [36, 36] });
+  }
+
+  function draw() {
+    routeLayer.clearLayers();
+    const stops = route.snapped;
+    // すごろくの道：黒い縁取りの上に黄色い道
+    const pathPts = route.line || [origin, ...stops, origin].map((p) => [p.lat, p.lng]);
+    L.polyline(pathPts, { color: "#1c2230", weight: 10, opacity: .9, lineJoin: "round" }).addTo(routeLayer);
+    L.polyline(pathPts, { color: "#f6c445", weight: 5, opacity: 1, lineJoin: "round", dashArray: route.line ? null : "8 8" }).addTo(routeLayer);
+    stops.forEach((p, i) => L.marker([p.lat, p.lng], { icon: icon(String(i + 1)) }).addTo(routeLayer));
+    fitRoute();
+    renderStats();
+    $("result").hidden = false;
+    $("roll").hidden = true; $("reroll").hidden = false; $("go").hidden = false; $("fitBtn").hidden = false;
+    $("go").href = gmapsUrl();
+  }
+  function renderStats() {
+    $("rDist").textContent = (route.distance / 1000).toFixed(1) + "km";
+    $("rTime").textContent = Math.round(route.distance / speed) + "分";
+    $("rCrowd").textContent = route.crowd == null ? "–" : Math.round(route.crowd * 100) + "%";
+    $("rClimb").textContent = route.climb == null ? "–" : Math.round(route.climb) + "m";
+    $("rBusy").textContent = route.busy == null ? "–" : Math.round(route.busy * 100) + "%";
+    $("rSteep").textContent = route.steep == null ? "–" : (route.steep < 2 ? "平ら" : Math.round(route.steep) + "%");
+    const pct = (v) => v == null ? "–" : Math.round(v * 100) + "%";
+    $("rBack").textContent = pct(route.back);
+    $("rDark").textContent = pct(route.dark);
+    $("rStairs").textContent = route.steps == null ? "–" : (route.steps === 0 ? "なし" : route.steps + "か所");
+    const note = $("rNote");
+    if (!route.routed) {
+      note.textContent = "経路サーバーに接続できなかったため、直線距離からの概算です。";
+    } else {
+      const stepsTxt = `歩数の目安は約${Math.round(route.distance / 0.7).toLocaleString()}歩です。`;
+      const stairWarn = avoidHills() && route.steps > 0
+        ? `候補の中に階段・歩道橋のないルートが見つかりませんでした（${route.steps}か所あります）。「ふりなおす」で別のルートも試せます。` : "";
+      const backWarn = avoidBack() && route.back > BACK_LIMIT
+        ? `同じ道を通らないルートが見つかりませんでした（同じ道が${Math.round(route.back * 100)}%あります）。「ふりなおす」で別のルートを試すか、出発地を少し変えてみてください。` : "";
+      const picked = stepsTxt + backWarn + stairWarn + (route.compared > 1 ? `${route.compared}つの候補から、好みに一番合うルートを選びました。` : "");
+      const night = nightMode() ? "夜道モードは地図のデータから道の様子を推定したもので、安全を保証するものではありません。" : "";
+      note.textContent = picked + "Googleマップは道の選び方が少し違うため、時間は数分前後することがあります。" + night;
+    }
+    note.classList.toggle("bad", !route.routed || (avoidBack() && route.back > BACK_LIMIT));
+  }
+
+  function gmapsUrl() {
+    const f = (p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+    const q = new URLSearchParams({
+      api: "1", origin: f(origin), destination: f(origin),
+      waypoints: route.snapped.map(f).join("|"), travelmode: "walking"
+    });
+    if ($("navNow").checked) q.set("dir_action", "navigate");
+    return "https://www.google.com/maps/dir/?" + q.toString();
+  }
+  $("go").addEventListener("click", (e) => {
+    if (!route) { e.preventDefault(); return; }
+    $("go").href = gmapsUrl();
+  });
+
+  // 計算中はサイコロの目を次々に変えて転がっているように見せる
+  let diceTimer = null;
+  function busy(on, msg) {
+    $("busy").hidden = !on; $("roll").disabled = on; $("reroll").disabled = on;
+    if (msg) busyMsg(msg);
+    clearInterval(diceTimer);
+    if (on) {
+      const roll = () => { $("busyDice").innerHTML = diceSVG(1 + Math.floor(Math.random() * 6)); };
+      roll();
+      if (!matchMedia("(prefers-reduced-motion: reduce)").matches) diceTimer = setInterval(roll, 180);
+    }
+  }
+  function busyMsg(msg) { $("busyMsg").textContent = msg; }
+
+  // ---------- controls ----------
+  function renderTime() {
+    $("time").value = minutes;
+    $("timeOut").innerHTML = `${minutes}<small>分</small>`;
+    $("dist").value = km;
+    $("distOut").innerHTML = `${km}<small>km</small><span class="sub">約${Math.round(km * 1000 / speed)}分</span>`;
+    $("timeBox").hidden = mode !== "time";
+    $("distBox").hidden = mode !== "dist";
+    document.querySelectorAll("#modeSeg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
+    document.querySelectorAll("#presets .chip").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.min === minutes)));
+    document.querySelectorAll("#distPresets .chip").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.km === km)));
+    document.querySelectorAll("#speeds button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.speed === speed)));
+  }
+  function setMinutes(m) {
+    if (m === minutes) return;
+    minutes = m; save("minutes", m); renderTime();
+    if (route) clearRoute();   // 長さを変えたら作り直し
+  }
+  function setKm(v) {
+    if (v === km) return;
+    km = v; save("km", v); renderTime();
+    if (route) clearRoute();
+  }
+  $("time").addEventListener("input", (e) => setMinutes(+e.target.value));
+  $("presets").addEventListener("click", (e) => { const b = e.target.closest("[data-min]"); if (b) setMinutes(+b.dataset.min); });
+  $("dist").addEventListener("input", (e) => setKm(+e.target.value));
+  $("distPresets").addEventListener("click", (e) => { const b = e.target.closest("[data-km]"); if (b) setKm(+b.dataset.km); });
+  $("modeSeg").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-mode]"); if (!b || b.dataset.mode === mode) return;
+    mode = b.dataset.mode; save("mode", mode); renderTime();
+    if (route) clearRoute();
+  });
+  $("speeds").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-speed]"); if (!b) return;
+    speed = +b.dataset.speed; save("speed", speed); renderTime();
+    if (route) { if (mode === "time") clearRoute(); else renderStats(); }  // 距離指定ならルートはそのまま
+  });
+  // 「同じ道を通らない」は最初からオン、他は最初はオフ
+  ["avoidBack", "avoidHills", "avoidBusy", "night"].forEach((id) => {
+    $(id).checked = settings[id] == null ? id === "avoidBack" : !!settings[id];
+    $(id).addEventListener("change", (e) => save(id, e.target.checked));
+  });
+  $("roll").addEventListener("click", generate);
+  $("reroll").addEventListener("click", generate);
+  $("fitBtn").addEventListener("click", fitRoute);
+  $("navNow").checked = !!settings.navNow;
+  $("navNow").addEventListener("change", (e) => save("navNow", e.target.checked));
+
+  renderTime();
+  locate();
+})();
+</script>
+</body>
+</html>
+
   --grid: rgba(28, 34, 48, .07);
   --card: #ffffff;
   --red: #e5483b;   --on-red: #ffffff;
