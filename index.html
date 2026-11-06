@@ -684,16 +684,22 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
         inEvent = isStep;
       });
       out.steps = steps;
-      let all = 0, busyLen = 0, darkLen = 0, livelyLen = 0;
+      let all = 0, busyLen = 0, darkLen = 0, livelyLen = 0, quietLen = 0;
       ta.edges.forEach((e) => {
         const len = e.length || 0; all += len;
         if (BUSY_CLASSES.has(e.road_class)) busyLen += len;
         darkLen += len * darkWeight(e);
         if (LIVELY_CLASSES.has(e.road_class) || e.use === "pedestrian") livelyLen += len;
+        // 大通りを除いた「人の気配がある道」：生活道路の幹線（tertiary）や、家が建ち並ぶ地域の普通の車道
+        if (e.road_class === "tertiary" || e.use === "pedestrian" ||
+            (e.use === "road" && !BUSY_CLASSES.has(e.road_class) && e.density != null && e.density >= 10)) quietLen += len;
       });
       // 歩行者天国・商店街の歩行者専用道（use: pedestrian）
       const pedLen = ta.edges.reduce((s, e) => s + (e.use === "pedestrian" ? (e.length || 0) : 0), 0);
-      if (all > 0) { out.busy = busyLen / all; out.dark = darkLen / all; out.lively = livelyLen / all; out.pedestrian = pedLen / all; }
+      if (all > 0) {
+        out.busy = busyLen / all; out.dark = darkLen / all; out.lively = livelyLen / all;
+        out.livelyQuiet = quietLen / all; out.pedestrian = pedLen / all;
+      }
     }
     if (profile && profile.length > 2) {
       const raw = profile;
@@ -767,6 +773,46 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
     return pts.length ? dup / pts.length : 0;
   }
 
+  // OpenStreetMap の検索（Nominatim）は「1秒に1回まで」の決まりなので、続けて使うときは間を空ける
+  let lastNominatim = 0;
+  async function nominatimTurn() {
+    const wait = lastNominatim + 1100 - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastNominatim = Date.now();
+  }
+
+  // ---------- 風俗街（基本原則として通らない） ----------
+  // 地図データの風俗店（amenity=brothel）のうち、150m 以内に仲間が2軒以上ある＝3軒以上集まった場所を風俗街とみなす。
+  // ぽつんと1軒だけの店は対象外（周り一帯が通れなくなるのを防ぐ）
+  const adultCache = new Map();
+  async function fetchAdultDistricts(center, radius) {
+    const dLat = radius / 110540, dLng = radius / (111320 * Math.cos(center.lat * Math.PI / 180));
+    const key = [center.lng - dLng, center.lat + dLat, center.lng + dLng, center.lat - dLat].map((v) => v.toFixed(3)).join(",");
+    if (adultCache.has(key)) return adultCache.get(key);
+    try {
+      await nominatimTurn();
+      const j = await getJson("https://nominatim.openstreetmap.org/search?format=json&limit=50&bounded=1&viewbox=" + key + "&amenity=brothel");
+      const venues = (Array.isArray(j) ? j : []).map((e) => ({ lat: +e.lat, lng: +e.lon }));
+      const district = venues.filter((v) => venues.filter((w) => w !== v && haversine(v, w) < 150).length >= 2);
+      adultCache.set(key, district);
+      return district;
+    } catch { return null; }
+  }
+  // ルートが風俗街の店から dist(m) 以内を通るか。
+  // 出発地そのものが風俗街の中にあるときは避けようがないので、出発地のまわり 150m だけは数えない
+  function passesNear(line, pts, dist) {
+    if (!line || !pts || !pts.length) return false;
+    const start = { lat: line[0][0], lng: line[0][1] };
+    const startInside = pts.some((s) => haversine(start, s) < dist);
+    for (let i = 0; i < line.length; i++) {
+      const p = { lat: line[i][0], lng: line[i][1] };
+      if (startInside && haversine(p, start) < 150) continue;
+      if (pts.some((s) => haversine(p, s) < dist)) return true;
+    }
+    return false;
+  }
+  const ADULT_DIST = 80;
+
   // ---------- 駅（人通りが多い場所） ----------
   const stationCache = new Map();
   async function fetchStations(center, radius) {
@@ -775,6 +821,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
     const key = box.join(",");
     if (stationCache.has(key)) return stationCache.get(key);
     try {
+      await nominatimTurn();
       const j = await getJson("https://nominatim.openstreetmap.org/search?format=json&limit=40&bounded=1&viewbox=" + key + "&q=" + encodeURIComponent("駅"));
       const list = (j || []).filter((e) => e.class === "railway" && (e.type === "station" || e.type === "halt") || (e.class === "public_transport" && e.type === "station"))
         .map((e) => ({ lat: +e.lat, lng: +e.lon }));
@@ -798,7 +845,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
   function penalty(c) {
     let p = 0;
     if (avoidBack() && c.back != null) p += c.back * 120;                        // 同じ道 10% → 12点
-    if (avoidBusy() && c.busy != null) p += c.busy * 100;                        // 大通り 10% → 10点
+    if (avoidBusy() && c.busy != null) p += c.busy * 150;                        // 大通り 10% → 15点（夜道モードの暗い道と同じ重み）
     if (avoidHills()) {
       const climb = (c.climb || 0) + (c.steps || 0) * STEP_CLIMB;  // 歩道橋・階段の上りも足す
       p += climb / (c.distance / 1000) * 1.5                        // 1kmあたり 10m 上る → 15点
@@ -806,7 +853,11 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
          + (c.steps || 0) * 30;                                     // 階段・歩道橋は1か所でも強く避ける
     }
     if (avoidCrowd() && c.crowd != null) p += c.crowd * 200;                     // 駅前・商店街 10% → 20点
-    if (nightMode() && c.dark != null) p += c.dark * 150 - (c.lively || 0) * 30;  // 暗い道 10% → 15点、表通りは少し加点
+    if (nightMode() && c.dark != null) {
+      // 暗い道 10% → 15点。人の気配がある道は少し加点（大通りを避けるときは、大通り以外で人の気配がある道を加点）
+      const lively = avoidBusy() ? (c.livelyQuiet || 0) : (c.lively || 0);
+      p += c.dark * 150 - lively * 30;
+    }
     return p;
   }
   const avoidBack = () => $("avoidBack").checked;
@@ -814,7 +865,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
   const avoidCrowd = () => !nightMode();
   const avoidHills = () => $("avoidHills").checked;
   const nightMode = () => $("night").checked;
-  const avoidBusy = () => $("avoidBusy").checked && !nightMode();  // 夜道モード中は大通りを避けない
+  const avoidBusy = () => $("avoidBusy").checked;  // 排気ガス・騒音対策なので、夜道モードとは関係なく使える
   const targetMeters = () => mode === "dist" ? km * 1000 : minutes * speed;
 
   // ---------- generate ----------
@@ -828,12 +879,14 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
     const any = avoidBack() || avoidCrowd() || avoidHills() || avoidBusy() || nightMode();
     const want = any ? 4 : 1;   // 好みがあるときは4候補から選ぶ
     const cands = [];
-    let fallback = null, backFallback = null, routed = true, lastErr = null;
+    let fallback = null, backFallback = null, adultFallback = null, routed = true, lastErr = null;
     let budget = avoidBack() ? ROUTE_BUDGET + 8 : ROUTE_BUDGET;  // 同じ道を通らない条件は厳しいので多めに探す
 
     busy(true, "サイコロをふっています…");
     // 人通りを避けるときは、周りの駅の位置を先に調べておく
     const stations = avoidCrowd() ? await fetchStations(origin, r0 * 2.6) : null;
+    // 風俗街の場所（どのモードでも通らない）
+    const adult = await fetchAdultDistricts(origin, r0 * 2.6);
     try {
       while (cands.length < want && budget > 0) {
         let shape = randomShape(), r = r0;
@@ -851,6 +904,11 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
           const detour = res.distance / Math.max(1, straightLength(res.snapped));
           if (drift > r * 0.35 || detour > 2.2) break;
           const err = Math.abs(res.distance - target) / target;
+          // 風俗街の近くを通るルートは候補にしない（基本原則）。形を変えて作り直す
+          if (passesNear(res.line, adult, ADULT_DIST)) {
+            if (!adultFallback || err < adultFallback.err) adultFallback = { ...res, err };
+            break;
+          }
           if (!fallback || err < fallback.err) fallback = { ...res, err };
           if (err <= TOLERANCE) {
             // 「同じ道を通らない」がオンなら、引き返す区間のあるルートは候補にしない（別の形で作り直す）
@@ -868,6 +926,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
       // 条件を満たすルートが1つもなければ、一番ましなものを使う（画面で知らせる）
       if (!cands.length && backFallback) cands.push(backFallback);
       if (!cands.length && fallback) cands.push(fallback);
+      if (!cands.length && adultFallback) cands.push(adultFallback);
       if (!cands.length) throw new Error("no candidate");
 
       busyMsg("道の様子を調べています…");
@@ -1011,17 +1070,8 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
   // 「同じ道を通らない」は最初からオン、他は最初はオフ
   ["avoidBack", "avoidHills", "avoidBusy", "night"].forEach((id) => {
     $(id).checked = settings[id] == null ? id === "avoidBack" : !!settings[id];
-    $(id).addEventListener("change", (e) => { save(id, e.target.checked); renderPrefs(); });
+    $(id).addEventListener("change", (e) => save(id, e.target.checked));
   });
-  // 夜道モード中は、人通りのある表通りを優先するため「大通りを避ける」と自動の人通り回避を止める
-  function renderPrefs() {
-    const n = nightMode();
-    $("busyRow").classList.toggle("off", n);
-    $("avoidBusy").disabled = n;
-    $("busyNote").textContent = n
-      ? "夜道モード中は、人通りのある表通りを優先するため使いません"
-      : "排気ガスや騒音が気にならないように、国道・県道クラスの道が少ないルートを選びます";  }
-  renderPrefs();
   $("roll").addEventListener("click", generate);
   $("reroll").addEventListener("click", generate);
   $("fitBtn").addEventListener("click", fitRoute);
