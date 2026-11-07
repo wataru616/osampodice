@@ -548,7 +548,13 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
   // 普通の徒歩ルート（Googleマップの道選びに近い）を取る
   async function fetchRoute(wps) {
     // Googleマップと同じく、経由地でUターンしてよい条件で道を引く（Googleで実際に出る道に近づける）
-    const locations = [origin, ...wps, origin].map((p) => ({ lat: +p.lat.toFixed(6), lon: +p.lng.toFixed(6), type: "break" }));
+    // 経由地は普通の車道（生活道路以上）にだけ置く。敷地内の通路・駐車場の道・小道は、
+    // Googleマップの地図では行き止まりのことが多く、そこで「行って戻る」折り返しになるため
+    const locations = [origin, ...wps, origin].map((p, i, a) => {
+      const loc = { lat: +p.lat.toFixed(6), lon: +p.lng.toFixed(6), type: "break" };
+      if (i > 0 && i < a.length - 1) loc.search_filter = { min_road_class: "residential" };
+      return loc;
+    });
     const j = await getJson(VALHALLA + "route?json=" + encodeURIComponent(JSON.stringify({
       locations, costing: "pedestrian", directions_type: "none"
     })));
@@ -696,7 +702,9 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
         out.mids = [];
         ta.edges.forEach((e) => {
           const b = e.begin_shape_index, en = e.end_shape_index;
-          if (b == null || en == null || en <= b || !MID_USES.has(e.use)) return;
+          if (b == null || en == null || en <= b) return;
+          // 歩道（車道に沿った道）か、普通の車道の途中だけ。敷地内の通路などは行き止まりになりやすいので使わない
+          if (!(e.use === "sidewalk" || (MID_USES.has(e.use) && MID_CLASSES.has(e.road_class)))) return;
           const seg = sh.slice(b, en + 1);
           let len = 0; for (let i = 1; i < seg.length; i++) len += haversine({ lat: seg[i - 1][0], lng: seg[i - 1][1] }, { lat: seg[i][0], lng: seg[i][1] });
           if (len < 50) return;   // 交差点から 25m 以上離れた点が取れる道だけ
@@ -750,7 +758,8 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--red); height: 36p
   const STEP_USES = new Set(["footway", "path", "pedestrian", "steps", "elevator", "cycleway"]);
   const STEP_CLIMB = 6; // 1か所あたりの上り（m）の目安。歩道橋の高さはおよそ5〜6m
   // Googleマップの経由地を置いてよい道（Googleの地図にも確実にある普通の道。小道や公園の中は避ける）
-  const MID_USES = new Set(["road", "living_street", "sidewalk"]);
+  const MID_USES = new Set(["road", "living_street"]);
+  const MID_CLASSES = new Set(["primary", "secondary", "tertiary", "unclassified", "residential"]);
 
   // 経由地を「道の途中」へ移す。ルートの線の上の点なので、ルート自体は変わらない
   function handoffPoints(c) {
